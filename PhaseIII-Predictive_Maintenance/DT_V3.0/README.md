@@ -350,7 +350,7 @@ sudo sysctl -p
 Open PowerShell in:
 
 ```powershell
-cd DT_V2.3/docker_compose
+cd DT_V3.0/docker_compose
 ```
 
 Generate local secrets and `.env` values:
@@ -359,13 +359,18 @@ Generate local secrets and `.env` values:
 ./bootstrap/prepare-env.ps1
 ```
 
+For linux users run:
+```shell
+pwsh-lts -File ./prepare-env.ps1
+```
+
 Start the stack:
 
 ```powershell
 docker compose up -d --build
 ```
 
-Open the portal:
+Open the portal (localhost or ip):
 
 ```text
 http://localhost:8001
