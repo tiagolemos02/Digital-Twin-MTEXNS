@@ -1,0 +1,342 @@
+networks:
+  fiware_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.18.1.0/24
+
+volumes:
+  mongo-db:
+  mysql-db:
+  authzforce-data:
+
+secrets:
+  my_secret_data:
+    file: ./secrets.txt
+
+services:
+  mysql-db:
+    restart: unless-stopped
+    image: mysql:${MYSQL_DB_VERSION}
+    container_name: db-mysql
+    hostname: mysql-db
+    expose:
+      - "3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD_FILE=/run/secrets/my_secret_data
+      - MYSQL_ROOT_HOST=%
+      - MYSQL_DATABASE=${KEYROCK_DB_NAME}
+      - MYSQL_USER=${KEYROCK_DB_USER}
+      - MYSQL_PASSWORD=${KEYROCK_DB_PASS:?KEYROCK_DB_PASS must be set}
+    volumes:
+      - mysql-db:/var/lib/mysql
+    secrets:
+      - my_secret_data
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$(cat /run/secrets/my_secret_data) --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    command: ["--host-cache-size=0"]
+    networks:
+      - fiware_net
+
+  mysql-bootstrap:
+    image: ${MYSQL_BOOTSTRAP_IMAGE}
+    container_name: mysql-bootstrap
+    depends_on:
+      mysql-db:
+        condition: service_healthy
+    secrets:
+      - my_secret_data
+    environment:
+      - MYSQL_HOST=mysql-db
+      - MYSQL_PORT=3306
+      - MYSQL_ROOT_PASSWORD_FILE=/run/secrets/my_secret_data
+      - KEYROCK_DB_NAME=${KEYROCK_DB_NAME}
+      - KEYROCK_DB_USER=${KEYROCK_DB_USER}
+      - KEYROCK_DB_PASS=${KEYROCK_DB_PASS:?KEYROCK_DB_PASS must be set}
+    networks:
+      - fiware_net
+    restart: "no"
+    volumes:
+      - ./bootstrap/mysql-bootstrap.sh:/opt/mysql-bootstrap.sh:ro
+    entrypoint: ["/bin/sh", "/opt/mysql-bootstrap.sh"]
+
+  keyrock:
+    restart: unless-stopped
+    image: ${KEYROCK_IMAGE}
+    container_name: fiware-keyrock
+    hostname: keyrock
+    depends_on:
+      mysql-db:
+        condition: service_healthy
+      mysql-bootstrap:
+        condition: service_completed_successfully
+      authzforce:
+        condition: service_started
+    ports:
+      - "${KEYROCK_PORT}:${KEYROCK_PORT}"
+      - "${KEYROCK_HTTPS_PORT}:${KEYROCK_HTTPS_PORT}"
+    environment:
+      - IDM_DB_HOST=mysql-db
+      - IDM_DB_PORT=3306
+      - IDM_DB_USER=${KEYROCK_DB_USER}
+      - IDM_DB_PASS=${KEYROCK_DB_PASS:?KEYROCK_DB_PASS must be set}
+      - IDM_DB_NAME=${KEYROCK_DB_NAME}
+      - IDM_DB_DIALECT=mysql
+      - IDM_PORT=${KEYROCK_PORT}
+      - IDM_HOST=${KEYROCK_BROWSER_URL}
+      - IDM_HTTPS_ENABLED=${IDM_HTTPS_ENABLED}
+      - IDM_HTTPS_PORT=${KEYROCK_HTTPS_PORT}
+      - IDM_ADMIN_USER=${KEYROCK_ADMIN_USERNAME}
+      - IDM_ADMIN_EMAIL=${KEYROCK_ADMIN_EMAIL}
+      - IDM_ADMIN_PASS=${KEYROCK_ADMIN_PASS:?KEYROCK_ADMIN_PASS must be set}
+      - CORS_ENABLED=true
+      - CORS_ALLOWED_ORIGINS=${PORTAL_ORIGIN}
+      - CORS_ALLOWED_HEADERS=authorization,content-type,x-auth-token
+      - CORS_ALLOWED_METHODS=GET,POST,PUT,PATCH,DELETE,OPTIONS
+      - CORS_EXPOSED_HEADERS=X-Subject-Token,location
+      - IDM_AUTHZFORCE_ENABLED=true
+      - IDM_AUTHZFORCE_HOST=authzforce
+      - IDM_AUTHZFORCE_PORT=8080
+      - IDM_PDP_LEVEL=advanced
+    volumes:
+      - ./bootstrap/keyrock-authzforce-rule.ejs:/opt/fiware-idm/templates/authzforce/rule.ejs:ro
+    command:
+      - /bin/sh
+      - -lc
+      - >
+        if grep -q 'options.authzforce && (options.action || options.resource || options.service_header || options.access_token)'
+        /opt/fiware-idm/controllers/oauth2/oauth2.js; then
+        sed -i 's/options.authzforce && (options.action || options.resource || options.service_header || options.access_token)/options.authzforce \&\& (options.action || options.resource || options.service_header)/'
+        /opt/fiware-idm/controllers/oauth2/oauth2.js;
+        fi;
+        exec npm start
+    healthcheck:
+      disable: true
+    networks:
+      - fiware_net
+
+  keyrock-bootstrap:
+    image: alpine:3.20
+    container_name: keyrock-bootstrap
+    depends_on:
+      keyrock:
+        condition: service_started
+      authzforce:
+        condition: service_started
+    networks:
+      - fiware_net
+    restart: "no"
+    volumes:
+      - ./bootstrap/keyrock-bootstrap.sh:/opt/keyrock-bootstrap.sh:ro
+      - ./bootstrap/.env.generated:/work/.env.generated
+      - ../web/digital-twin-portal/js/runtime-config.js:/work/runtime-config.js
+    entrypoint: ["/bin/sh", "/opt/keyrock-bootstrap.sh"]
+    environment:
+      - KEYROCK_URL=http://keyrock:${KEYROCK_PORT}
+      - KEYROCK_ADMIN_NAME=${KEYROCK_ADMIN_EMAIL}
+      - KEYROCK_ADMIN_USERNAME=${KEYROCK_ADMIN_USERNAME}
+      - KEYROCK_ADMIN_EMAIL=${KEYROCK_ADMIN_EMAIL}
+      - KEYROCK_ADMIN_PASS=${KEYROCK_ADMIN_PASS:?KEYROCK_ADMIN_PASS must be set}
+      - KEYROCK_VIEWER_USERNAME=${KEYROCK_VIEWER_USERNAME}
+      - KEYROCK_VIEWER_EMAIL=${KEYROCK_VIEWER_EMAIL}
+      - KEYROCK_VIEWER_PASS=${KEYROCK_VIEWER_PASS:?KEYROCK_VIEWER_PASS must be set}
+      - ENV_OUT_FILE=/work/.env.generated
+      - WEB_CONFIG_FILE=/work/runtime-config.js
+      - APP_NAME=${APP_NAME}
+      - APP_DESCRIPTION=${APP_DESCRIPTION}
+      - APP_URL=${APP_URL}
+      - APP_REDIRECT_URI=${APP_REDIRECT_URI}
+
+  portal-bff:
+    build: ./bff
+    container_name: portal-bff
+    hostname: portal-bff
+    depends_on:
+      keyrock-bootstrap:
+        condition: service_completed_successfully
+      pep-proxy:
+        condition: service_started
+    env_file:
+      - ./.env
+    environment:
+      - BFF_PORT=${PORTAL_BFF_PORT}
+      - BFF_PUBLIC_BASE_URL=${PORTAL_PUBLIC_BASE_URL}
+      - BFF_KEYROCK_BROWSER_URL=${KEYROCK_BROWSER_URL}
+      - BFF_KEYROCK_INTERNAL_URL=http://keyrock:${KEYROCK_PORT}
+      - BFF_REDIRECT_URI=${APP_REDIRECT_URI}
+      - BFF_FIWARE_BASE_URL=http://pep-proxy:1027
+      - BFF_ADMIN_ROLE_NAME=${BFF_ADMIN_ROLE_NAME}
+      - BFF_KEYROCK_ADMIN_NAME=${KEYROCK_ADMIN_EMAIL}
+      - BFF_KEYROCK_ADMIN_PASS=${KEYROCK_ADMIN_PASS:?KEYROCK_ADMIN_PASS must be set}
+      - BFF_SESSION_SECRET=${BFF_SESSION_SECRET:?BFF_SESSION_SECRET must be set}
+    ports:
+      - "${PORTAL_BFF_PORT}:${PORTAL_BFF_PORT}"
+    entrypoint: ["/bin/sh", "/opt/bootstrap/portal-bff-entrypoint.sh"]
+    volumes:
+      - ../web/digital-twin-portal:/app/public:ro
+      - ./bootstrap/.env.generated:/work/.env.generated:ro
+      - ./bootstrap/portal-bff-entrypoint.sh:/opt/bootstrap/portal-bff-entrypoint.sh:ro
+    networks:
+      - fiware_net
+
+  api-gateway:
+    image: ${API_GATEWAY_IMAGE}
+    container_name: fiware-api-gateway
+    hostname: api-gateway
+    depends_on:
+      - orion-v2
+      - iot-agent
+    expose:
+      - "80"
+    volumes:
+      - ./gateway:/etc/nginx/conf.d/:ro
+    networks:
+      - fiware_net
+
+  pep-proxy:
+    image: ${PEP_PROXY_IMAGE}
+    container_name: pep-proxy
+    hostname: pep-proxy
+    depends_on:
+      keyrock-bootstrap:
+        condition: service_completed_successfully
+      api-gateway:
+        condition: service_started
+      authzforce:
+        condition: service_started
+    ports:
+      - "1027:1027"
+    expose:
+      - "1027"
+    volumes:
+      - ./bootstrap/pep-authzforce-custom-policy.js:/opt/fiware-pep-proxy/lib/policies/lisbon_working_hours.js:ro
+      - ./bootstrap/.env.generated:/work/.env.generated:ro
+      - ./bootstrap/pep-proxy-entrypoint.sh:/opt/bootstrap/pep-proxy-entrypoint.sh:ro
+    entrypoint: ["/bin/sh", "/opt/bootstrap/pep-proxy-entrypoint.sh"]
+    environment:
+      - PEP_PROXY_APP_HOST=api-gateway
+      - PEP_PROXY_APP_PORT=80
+      - PEP_PROXY_PORT=1027
+      - PEP_PROXY_IDM_HOST=keyrock
+      - PEP_PROXY_IDM_PORT=${KEYROCK_PORT}
+      - PEP_PROXY_IDM_SSL_ENABLED=${IDM_HTTPS_ENABLED}
+      - PEP_PROXY_AUTH_ENABLED=true
+      - PEP_PROXY_DEBUG=${PEP_PROXY_DEBUG}
+      - PEP_PROXY_LOG_LEVEL=${PEP_PROXY_LOG_LEVEL}
+      - PEP_PROXY_PDP=authzforce
+      - PEP_PROXY_AZF_PROTOCOL=http
+      - PEP_PROXY_AZF_HOST=authzforce
+      - PEP_PROXY_AZF_PORT=8080
+      - PEP_PROXY_AZF_CUSTOM_POLICY=lisbon_working_hours.js
+      - TZ=${TZ}
+      - PEP_PROXY_CORS_ORIGIN=${PORTAL_ORIGIN}
+      - PEP_PROXY_CORS_ALLOWED_HEADERS=content-type,authorization,x-auth-token,fiware-service,fiware-servicepath
+    networks:
+      - fiware_net
+
+  authzforce:
+    image: ${AUTHZFORCE_IMAGE}
+    container_name: fiware-authzforce
+    hostname: authzforce
+    environment:
+      - TZ=${TZ}
+    expose:
+      - "8080"
+    volumes:
+      - authzforce-data:/opt/authzforce-ce-server/data
+    networks:
+      - fiware_net
+
+  mongo-db:
+    image: ${MONGO_IMAGE}
+    container_name: db-mongo
+    hostname: mongo-db
+    expose:
+      - "27017"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_ROOT_USERNAME}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD:?MONGO_ROOT_PASSWORD must be set}
+    volumes:
+      - mongo-db:/data
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh -u $$MONGO_ROOT_USERNAME -p $$MONGO_ROOT_PASSWORD --eval \"db.adminCommand('ping')\" --quiet"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+    networks:
+      - fiware_net
+
+  orion-v2:
+    image: ${ORION_IMAGE}
+    container_name: fiware-orion
+    hostname: orion
+    depends_on:
+      - mongo-db
+    expose:
+      - "1026"
+    command: >
+      -dbURI mongodb://${MONGO_ROOT_USERNAME}:${MONGO_ROOT_PASSWORD}@mongo-db
+      -logLevel ${ORION_LOG_LEVEL}
+      -corsOrigin __ALL
+      -corsMaxAge 600
+    healthcheck:
+      test: curl --fail -s http://orion:1026/version || exit 1
+      interval: 5s
+    networks:
+      - fiware_net
+
+  iot-agent:
+    image: ${IOT_AGENT_IMAGE}
+    container_name: fiware-custom-agent
+    hostname: iot-agent
+    depends_on:
+      - mongo-db
+      - mosquitto
+    expose:
+      - "4041"
+    environment:
+      - IOTA_CB_HOST=orion-v2
+      - IOTA_CB_PORT=1026
+      - IOTA_NORTH_PORT=4041
+      - IOTA_CB_NGSI_VERSION=v2
+      - IOTA_REGISTRY_TYPE=mongodb
+      - IOTA_MONGO_HOST=${MONGO_ROOT_USERNAME}:${MONGO_ROOT_PASSWORD}@mongo-db
+      - IOTA_MONGO_PORT=27017
+      - IOTA_MONGO_DB=iotagentjson?authSource=admin
+      - IOTA_MQTT_HOST=mosquitto
+      - IOTA_MQTT_PORT=1883
+      - IOTA_DEFAULT_TRANSPORT=MQTT
+      - IOTA_LOG_LEVEL=${IOTA_LOG_LEVEL}
+      - IOTA_DEFAULT_EXPRESSION_LANGUAGE=jexl
+      - IOTA_TIMESTAMP=true
+      - IOTA_AUTOCAST=true
+      - IOTA_PROVIDER_URL=http://iot-agent:4041
+      - IOTA_DEFAULT_RESOURCE=
+      - IOTA_HTTP_CORS_ENABLED=true
+      - IOTA_HTTP_CORS_ALLOWED_ORIGIN=${PORTAL_ORIGIN}
+      - IOTA_HTTP_CORS_ALLOWED_METHODS=GET,POST,OPTIONS
+      - IOTA_HTTP_CORS_ALLOWED_HEADERS=Fiware-Service,Fiware-ServicePath,Authorization,Content-Type
+    healthcheck:
+      test: curl --fail -s http://iot-agent:4041/iot/about || exit 1
+      interval: 5s
+    networks:
+      - fiware_net
+
+  mosquitto:
+    image: ${MOSQUITTO_IMAGE}
+    container_name: mosquitto
+    hostname: mosquitto
+    expose:
+      - "1883"
+      - "9001"
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+    networks:
+      - fiware_net

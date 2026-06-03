@@ -1,0 +1,10 @@
+# Local environment and secrets
+docker_compose/.env
+docker_compose/secrets.txt
+
+# Bootstrap outputs with credentials
+docker_compose/bootstrap/.env.generated
+web/digital-twin-portal/js/runtime-config.js
+
+# Optional local overrides
+docker_compose/*.local
