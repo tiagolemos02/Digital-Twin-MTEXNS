@@ -1,4 +1,4 @@
-# Phase III - Predictive Maintenance v0.1
+# Phase III - Predictive Maintenance
 
 **This phase starts the predictive maintenance roadmap by adding the historical telemetry foundation required for later machine learning.**
 
@@ -8,7 +8,7 @@ The existing Phase II security model remains the baseline: browser traffic goes 
 
 ## Project Identification
 
-**Repository**: `tiagolemos02/PhaseIII-PM/DT_V3.0.1`
+**Repository**: `tiagolemos02/PhaseIII-PM/DT_V3.0`
 
 **Phase**: `Phase III - Predictive Maintenance`
 
