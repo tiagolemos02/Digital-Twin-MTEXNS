@@ -1,0 +1,60 @@
+.mode-toggle {
+  position: relative;
+  overflow: hidden;
+  border-radius: 9999px;
+  background: linear-gradient(to right, #1E3A8A, #4C51BF);
+  transition: background 0.25s ease;
+  cursor: pointer;
+  --toggle-progress: 0;
+}
+
+.mode-toggle[data-mode='automatic'] {
+  background: linear-gradient(to right, #10B981, #34D399);
+  --toggle-progress: 1;
+}
+
+.mode-toggle::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    circle at calc(20% + (var(--toggle-progress) * 60%)) 50%,
+    rgba(255, 255, 255, 0.22),
+    transparent 60%
+  );
+  transition: background 0.25s ease;
+}
+
+.mode-toggle .mode-knob {
+  pointer-events: none;
+  transition: transform 0.2s ease;
+}
+
+.mode-toggle .mode-knob-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+.mode-toggle .mode-knob-label-manual {
+  color: #1E3A8A;
+  opacity: calc(1 - var(--toggle-progress));
+}
+
+.mode-toggle .mode-knob-label-auto {
+  color: #047857;
+  opacity: var(--toggle-progress);
+}
+
+.tab-denied > :not([data-access-denied-placeholder="true"]) {
+  display: none !important;
+}

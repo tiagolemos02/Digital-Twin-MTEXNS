@@ -1,0 +1,1648 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Digital Twin Security Portal</title>
+  <link
+    rel="stylesheet"
+    href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+  />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body class="min-h-screen bg-gray-50">
+  <div class="container mx-auto px-4 py-8 max-w-6xl">
+    <!-- HEADER -->
+    <header class="mb-8">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center space-x-3">
+          <div class="bg-indigo-100 p-3 rounded-lg">
+            <i class="fas fa-shield-alt text-indigo-600 text-2xl"></i>
+          </div>
+          <div>
+            <h1 class="text-2xl font-bold text-gray-800">
+              Digital Twin Security Portal
+            </h1>
+            <p class="text-gray-600">
+              Secure access management for your digital twin ecosystem
+            </p>
+          </div>
+        </div>
+        <!-- USER MENU -->
+        <div id="userMenuWrapper" class="hidden relative">
+          <button
+            id="userInfo"
+            class="flex items-center space-x-2 bg-indigo-50 px-4 py-2 rounded-full focus:outline-none"
+          >
+            <i class="fas fa-user-circle text-indigo-600"></i>
+            <span id="loggedInEmail" class="font-medium text-indigo-700 text-sm"></span>
+          </button>
+          <div
+            id="userDropdown"
+            class="absolute right-0 mt-2 w-40 bg-white border border-gray-200 rounded-lg shadow-lg hidden z-50"
+          >
+            <button
+              id="btnLogout"
+              class="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+            >
+              Log out
+            </button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- MAIN -->
+    <main>
+      <!-- LOGIN SECTION -->
+      <section id="loginSection" class="card bg-white rounded-lg p-6 mb-6">
+        <div class="grid md:grid-cols-2 gap-6">
+          <div>
+            <form id="loginForm" onsubmit="return false;">
+              <div class="mb-4">
+                <label
+                  for="email"
+                  class="block text-sm font-medium text-gray-700 mb-1"
+                  >Email</label
+                >
+                <div class="relative">
+                  <input
+                    type="email"
+                    id="email"
+                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    placeholder="admin@digitaltwin.com"
+                  />
+                  <i class="fas fa-envelope absolute right-3 top-3 text-gray-400"></i>
+                </div>
+              </div>
+              <div class="mb-4">
+                <label
+                  for="password"
+                  class="block text-sm font-medium text-gray-700 mb-1"
+                  >Password</label
+                >
+                <div class="relative">
+                  <input
+                    type="password"
+                    id="password"
+                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    placeholder="••••••••"
+                  />
+                  <i id="togglePassword" class="fas fa-eye-slash password-toggle"></i>
+                </div>
+              </div>
+              <button
+                type="button"
+                id="btnLogin"
+                class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 px-4 rounded-lg transition duration-200 flex items-center justify-center"
+              >
+                <span id="loginBtnText">Sign In</span>
+                <i id="loginSpinner" class="fas fa-spinner loading-spinner ml-2 hidden"></i>
+              </button>
+              <div id="loginMsg" class="mt-3 text-sm text-red-600"></div>
+            </form>
+          </div>
+          <div
+            class="hidden md:block bg-gray-50 p-6 rounded-lg border border-gray-200"
+          >
+            <h3 class="text-lg font-medium text-gray-800 mb-3">
+              Security Information
+            </h3>
+            <p class="text-sm text-gray-600 mb-2">
+              <i class="fas fa-lock text-green-600 mr-1"></i> End‑to‑End TLS 1.3
+            </p>
+            <p class="text-sm text-gray-600 mb-2">
+              <i class="fas fa-user-shield text-blue-600 mr-1"></i> Role‑Based
+              Access Control
+            </p>
+            <p class="text-sm text-gray-600">
+              <i class="fas fa-fingerprint text-purple-600 mr-1"></i> Optional MFA
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- TABS NAVIGATION -->
+      <div id="tabsNav" class="hidden border-b border-gray-200 mb-6">
+        <nav class="-mb-px flex flex-wrap gap-x-8 gap-y-2">
+          <button
+            id="usersTab"
+            class="tab-active whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm"
+          >
+            <i class="fas fa-users mr-2"></i>User Management
+          </button>
+          <button
+            id="rolesTab"
+            class="whitespace-nowrap py-4 px-1 border-b-2 border-transparent font-medium text-sm text-gray-500 hover:text-gray-700 hover:border-gray-300"
+          >
+            <i class="fas fa-user-tag mr-2"></i>Roles & Permissions
+          </button>
+          <button
+          id="inventoryTab"
+          class="whitespace-nowrap py-4 px-1 border-b-2 border-transparent font-medium text-sm text-gray-500 hover:text-gray-700 hover:border-gray-300"
+        >
+          <i class="fas fa-industry mr-2"></i>Machines & Services
+        </button>
+          <button
+            id="orionTab"
+            class="whitespace-nowrap py-4 px-1 border-b-2 border-transparent font-medium text-sm text-gray-500 hover:text-gray-700 hover:border-gray-300"
+          >
+            <i class="fas fa-chart-line mr-2"></i>Orion Logs
+          </button>
+          <button
+            id="historicalTab"
+            class="whitespace-nowrap py-4 px-1 border-b-2 border-transparent font-medium text-sm text-gray-500 hover:text-gray-700 hover:border-gray-300"
+          >
+            <i class="fas fa-clock-rotate-left mr-2"></i>Historical Data
+          </button>
+          <button
+            id="digitalTwinTab"
+            class="whitespace-nowrap py-4 px-1 border-b-2 border-transparent font-medium text-sm text-gray-500 hover:text-gray-700 hover:border-gray-300"
+          >
+            <i class="fas fa-cube mr-2"></i>3D Digital Twin
+          </button>
+          <button
+            id="auditTab"
+            class="whitespace-nowrap py-4 px-1 border-b-2 border-transparent font-medium text-sm text-gray-500 hover:text-gray-700 hover:border-gray-300"
+          >
+            <i class="fas fa-clipboard-list mr-2"></i>Audit Logs
+          </button>
+          <button
+            id="settingsTab"
+            class="whitespace-nowrap py-4 px-1 border-b-2 border-transparent font-medium text-sm text-gray-500 hover:text-gray-700 hover:border-gray-300"
+          >
+            <i class="fas fa-cog mr-2"></i>Security Settings
+          </button>
+        </nav>
+      </div>
+
+      <!-- USERS SECTION -->
+      <section id="usersSection" class="disabled-section">
+        <div class="card bg-white rounded-lg p-6 mb-6">
+          <div class="flex items-center justify-between mb-6">
+            <div class="flex items-center">
+              <div class="bg-indigo-100 p-2 rounded-full mr-3">
+                <i class="fas fa-users text-indigo-600"></i>
+              </div>
+              <h2 class="text-xl font-semibold text-gray-800">User Management</h2>
+            </div>
+            <button
+              id="refreshUsers"
+              class="text-indigo-600 hover:text-indigo-800 text-sm font-medium flex items-center"
+            >
+              <i class="fas fa-sync-alt mr-2"></i>Refresh
+            </button>
+          </div>
+          <div class="overflow-x-auto">
+            <table id="usersTable" class="min-w-full divide-y divide-gray-200">
+              <thead class="bg-gray-50">
+                <tr>
+                  <th
+                    class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                  >
+                    ID
+                  </th>
+                  <th
+                    class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                  >
+                    Username
+                  </th>
+                  <th
+                    class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                  >
+                    Email
+                  </th>
+                  <th
+                    class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                  >
+                    Status
+                  </th>
+                </tr>
+              </thead>
+              <tbody
+                id="usersTableBody"
+                class="bg-white divide-y divide-gray-200"
+              >
+                <tr>
+                  <td
+                    colspan="4"
+                    class="px-6 py-4 text-center text-sm text-gray-500"
+                  >
+                    Please sign in to view users
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div id="usersMessage" class="mt-3 text-sm text-red-600"></div>
+        </div>
+
+        <!-- CREATE USER CARD -->
+        <div class="card bg-white rounded-lg p-6">
+          <div class="flex items-center mb-6">
+            <div class="bg-green-100 p-2 rounded-full mr-3">
+              <i class="fas fa-user-plus text-green-600"></i>
+            </div>
+            <h2 class="text-xl font-semibold text-gray-800">Create New User</h2>
+          </div>
+          <form id="createUserForm" onsubmit="return false;">
+            <div class="grid md:grid-cols-2 gap-6">
+              <div>
+                <div class="mb-4">
+                  <label
+                    for="new_username"
+                    class="block text-sm font-medium text-gray-700 mb-1"
+                    >Username *</label
+                  >
+                  <input
+                    type="text"
+                    id="new_username"
+                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    placeholder="Enter username"
+                    disabled
+                  />
+                </div>
+                <div class="mb-4">
+                  <label
+                    for="new_email"
+                    class="block text-sm font-medium text-gray-700 mb-1"
+                    >Email *</label
+                  >
+                  <input
+                    type="email"
+                    id="new_email"
+                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    placeholder="user@digitaltwin.com"
+                    disabled
+                  />
+                </div>
+                <div class="mb-4">
+                  <label
+                    for="new_password"
+                    class="block text-sm font-medium text-gray-700 mb-1"
+                    >Password *</label
+                  >
+                  <div class="relative">
+                    <input
+                      type="password"
+                      id="new_password"
+                      class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      placeholder="••••••••"
+                      disabled
+                    />
+                    <i
+                      id="toggleNewPassword"
+                      class="fas fa-eye-slash password-toggle"
+                    ></i>
+                  </div>
+                  <p class="mt-1 text-xs text-gray-500">
+                    Minimum 8 characters with uppercase, lowercase, and number
+                  </p>
+                </div>
+              </div>
+              <div>
+                <div class="mb-4">
+                  <label
+                    for="new_description"
+                    class="block text-sm font-medium text-gray-700 mb-1"
+                    >Description</label
+                  >
+                  <textarea
+                    id="new_description"
+                    rows="2"
+                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    placeholder="Optional user description"
+                    disabled
+                  ></textarea>
+                </div>
+                <div class="mb-4">
+                  <label
+                    for="new_website"
+                    class="block text-sm font-medium text-gray-700 mb-1"
+                    >Website</label
+                  >
+                  <input
+                    type="url"
+                    id="new_website"
+                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    placeholder="https://example.com"
+                    disabled
+                  />
+                </div>
+                <div class="flex items-center mb-6">
+                  <input
+                    type="checkbox"
+                    id="new_enable"
+                    class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+                    disabled
+                  />
+                  <label for="new_enable" class="ml-2 block text-sm text-gray-700"
+                    >Enable user immediately</label
+                  >
+                </div>
+              </div>
+            </div>
+            <div class="flex justify-end">
+              <button
+                type="button"
+                id="btnCreate"
+                class="bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-6 rounded-lg transition duration-200 flex items-center"
+                disabled
+              >
+                <span id="createBtnText">Create User</span>
+                <i id="createSpinner" class="fas fa-spinner loading-spinner ml-2 hidden"></i>
+              </button>
+            </div>
+            <div id="createMsg" class="mt-3 text-sm text-red-600"></div>
+          </form>
+        </div>
+      </section>
+
+      <!-- SERVICE GROUP AND MACHINES SECTION -->
+     <section id="inventorySection" class="hidden">
+      <div class="card bg-white rounded-lg p-6 space-y-8">
+        <div class="flex items-center">
+          <div class="bg-indigo-100 p-2 rounded-full mr-3">
+            <i class="fas fa-diagram-project text-indigo-600"></i>
+          </div>
+          <div>
+            <h2 class="text-xl font-semibold text-gray-800">
+              Machines & Service Groups
+            </h2>
+            <p class="text-sm text-gray-600">
+              Register production assets and keep track of the service groups that own them.
+            </p>
+          </div>
+        </div>
+
+        <div class="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-amber-700">
+          <p class="text-sm font-medium">
+            Case sensitivity warning
+          </p>
+          <p class="mt-1 text-xs">
+            All inventory fields are case sensitive, including service group registration and machine onboarding.
+          </p>
+        </div>
+
+          <div class="grid gap-6 lg:grid-cols-2">
+            <div class="p-5 border border-gray-200 rounded-lg">
+              <h3 class="text-lg font-medium text-gray-800 mb-4">
+                <i class="fas fa-layer-group mr-2 text-indigo-500"></i>Add Service Group
+              </h3>
+              <form id="serviceGroupForm" class="space-y-4" autocomplete="off">
+                <div>
+                  <label for="serviceGroupApiKey" class="block text-sm font-medium text-gray-700 mb-1">API key (optional)</label>
+                  <input
+                    type="text"
+                    id="serviceGroupApiKey"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    placeholder="e.g. assembly-line-01"
+                  />
+                  <p class="mt-2 text-xs text-gray-500">
+                    Leave blank if this service group does not require an API key.
+                  </p>
+                </div>
+                <div class="grid md:grid-cols-3 gap-4">
+                  <div>
+                    <label for="serviceGroupCbroker" class="block text-sm font-medium text-gray-700 mb-1">Context Broker URL</label>
+                    <input
+                      type="url"
+                      id="serviceGroupCbroker"
+                      class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      placeholder="http://orion:1026"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label for="serviceGroupResource" class="block text-sm font-medium text-gray-700 mb-1">Resource path</label>
+                    <input
+                      type="text"
+                      id="serviceGroupResource"
+                      class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      placeholder="/iot/json"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label for="serviceGroupEntityType" class="block text-sm font-medium text-gray-700 mb-1">Entity type</label>
+                    <input
+                      type="text"
+                      id="serviceGroupEntityType"
+                      class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      placeholder="e.g. Machine"
+                     required
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label for="serviceGroupName" class="block text-sm font-medium text-gray-700 mb-1">Display name (optional)</label>
+                  <input
+                    type="text"
+                    id="serviceGroupName"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    placeholder="Assembly Line"
+                  />
+                </div>
+                <div>
+                  <label for="serviceGroupDescription" class="block text-sm font-medium text-gray-700 mb-1">Notes (optional)</label>
+                  <textarea
+                    id="serviceGroupDescription"
+                    rows="2"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    placeholder="Purpose, shift responsibilities, etc."
+                  ></textarea>
+                </div>
+                <button
+                  type="submit"
+                  class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 px-4 rounded-lg transition duration-200"
+                >
+                  Save Service Group
+              </button>
+              <p id="serviceGroupMsg" class="hidden mt-2 text-sm text-red-600"></p>
+            </form>
+          </div>
+
+            <div class="p-5 border border-gray-200 rounded-lg">
+              <h3 class="text-lg font-medium text-gray-800 mb-4">
+                <i class="fas fa-microchip mr-2 text-indigo-500"></i>Add Machine
+              </h3>
+              <form id="machineForm" class="space-y-4" autocomplete="off">
+                <div class="grid md:grid-cols-2 gap-4">
+                  <div>
+                    <label for="machineDeviceId" class="block text-sm font-medium text-gray-700 mb-1">Device ID</label>
+                    <input
+                      type="text"
+                      id="machineDeviceId"
+                      class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      placeholder="e.g. 00:00:0A:B3:47:FA"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label for="machineServiceGroup" class="block text-sm font-medium text-gray-700 mb-1">Service group</label>
+                    <select
+                      id="machineServiceGroup"
+                      class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+                      disabled
+                    >
+                      <option value="">Add a service group first</option>
+                    </select>
+                  </div>
+                </div>
+                <!-- Device picker: shown when a service group is selected and unregistered
+                     IoT Agent devices are available for it. -->
+                <div id="deviceIdPickerWrapper" class="hidden">
+                  <button
+                    type="button"
+                    id="deviceIdPickerToggle"
+                    class="flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-800 font-medium mt-1 focus:outline-none"
+                    aria-expanded="false"
+                    aria-controls="deviceIdPickerPanel"
+                  >
+                    <i id="deviceIdPickerChevron" class="fas fa-chevron-right text-xs transition-transform duration-200"></i>
+                    Available device IDs from IoT Agent
+                  </button>
+                  <div id="deviceIdPickerPanel" class="hidden mt-2 border border-gray-200 rounded-lg bg-white shadow-sm">
+                    <ul id="deviceIdPickerList" class="py-1 max-h-40 overflow-y-auto divide-y divide-gray-100"></ul>
+                  </div>
+                </div>
+                <div>
+                  <label for="machineName" class="block text-sm font-medium text-gray-700 mb-1">Machine name</label>
+                  <input
+                    type="text"
+                    id="machineName"
+                  class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  placeholder="e.g. Hydraulic Press 01"
+                  required
+                />
+              </div>
+              <div>
+                <label for="machineModel" class="block text-sm font-medium text-gray-700 mb-1">Model / Asset ID</label>
+                <input
+                  type="text"
+                  id="machineModel"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    placeholder="e.g. HP-2000"
+                  />
+                </div>
+                <div class="space-y-4">
+                  <div class="border border-gray-200 rounded-lg p-4">
+                    <div class="flex items-center justify-between">
+                      <div>
+                        <h4 class="text-sm font-semibold text-gray-800">Telemetry Attributes</h4>
+                        <p class="text-xs text-gray-500">Define how this device sends live telemetry.</p>
+                      </div>
+                    </div>
+                    <div class="mt-3">
+                      <div class="flex items-center justify-between mb-2">
+                        <span class="text-xs font-semibold uppercase tracking-wide text-indigo-600">Mode</span>
+                      </div>
+                      <div
+                        id="attributeModeToggle"
+                        class="mode-toggle relative w-full h-12 rounded-full select-none focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors"
+                        role="switch"
+                        aria-checked="false"
+                        tabindex="0"
+                      >
+                        <div class="mode-knob absolute top-1 left-1 h-10 w-24 rounded-full bg-white shadow-lg transition-all duration-300 ease-out pointer-events-none">
+                          <span class="mode-knob-label mode-knob-label-manual text-indigo-700">Manual</span>
+                          <span class="mode-knob-label mode-knob-label-auto text-emerald-700">Automatic</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div id="attributeManualContainer" class="mt-3">
+                      <textarea
+                        id="machineAttributesManual"
+                        rows="3"
+                        class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        placeholder='[{"object_id":"state/machine_status","name":"machineStatus","type":"integer"}]'
+                      ></textarea>
+                      <p class="mt-2 text-xs text-gray-500">
+                        Provide IoT Agent attributes in JSON format. Leave blank to register without telemetry mappings.
+                      </p>
+                    </div>
+                    <div id="attributeAutomaticContainer" class="hidden mt-4 space-y-3">
+                      <div class="grid gap-3 sm:grid-cols-3">
+                        <div>
+                          <label for="attributeObjectId" class="block text-xs font-medium text-gray-600 mb-1">Object ID</label>
+                          <input
+                            id="attributeObjectId"
+                            type="text"
+                            class="w-full px-2 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                            placeholder="state/name_state"
+                          />
+                        </div>
+                        <div>
+                          <label for="attributeName" class="block text-xs font-medium text-gray-600 mb-1">Name</label>
+                          <input
+                            id="attributeName"
+                            type="text"
+                            class="w-full px-2 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                            placeholder="machineState"
+                          />
+                        </div>
+                        <div>
+                          <label for="attributeType" class="block text-xs font-medium text-gray-600 mb-1">Type</label>
+                          <select
+                            id="attributeType"
+                            class="w-full px-2 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                          >
+                            <option value="">Select type</option>
+                            <option value="integer">integer</option>
+                            <option value="float">float</option>
+                            <option value="string">string</option>
+                            <option value="boolean">boolean</option>
+                            <option value="datetime">datetime</option>
+                            <option value="StructuredValue">StructuredValue</option>
+                            <option value="Relationship">Relationship</option>
+                            <option value="geo:point">geo:point</option>
+                          </select>
+                        </div>
+                      </div>
+                      <div class="flex items-center justify-between">
+                        <p class="text-xs text-gray-500">Add each telemetry attribute you want to expose.</p>
+                        <button
+                          type="button"
+                          id="attributeAddBtn"
+                          class="inline-flex items-center rounded-md border border-indigo-300 px-3 py-1 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                        >
+                          <i class="fas fa-plus mr-1"></i>Add attribute
+                        </button>
+                      </div>
+                      <ul
+                        id="attributeAutoList"
+                        class="rounded-md border border-gray-200 bg-white divide-y divide-gray-200 text-sm text-gray-700"
+                      >
+                        <li class="px-3 py-2 text-xs text-gray-500">No attributes added yet.</li>
+                      </ul>
+                    </div>
+                  </div>
+
+                  <div class="border border-gray-200 rounded-lg p-4">
+                    <div class="flex items-center justify-between">
+                      <div>
+                        <h4 class="text-sm font-semibold text-gray-800">Static Attributes (optional)</h4>
+                        <p class="text-xs text-gray-500">Describe fixed metadata such as brand or location.</p>
+                      </div>
+                    </div>
+                    <div class="mt-3">
+                      <div class="flex items-center justify-between mb-2">
+                        <span class="text-xs font-semibold uppercase tracking-wide text-indigo-600">Mode</span>
+                      </div>
+                      <div
+                        id="staticAttributesModeToggle"
+                        class="mode-toggle relative w-full h-12 rounded-full select-none focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors"
+                        role="switch"
+                        aria-checked="false"
+                        tabindex="0"
+                      >
+                        <div class="mode-knob absolute top-1 left-1 h-10 w-24 rounded-full bg-white shadow-lg transition-all duration-300 ease-out pointer-events-none">
+                          <span class="mode-knob-label mode-knob-label-manual text-indigo-700">Manual</span>
+                          <span class="mode-knob-label mode-knob-label-auto text-emerald-700">Automatic</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div id="staticAttributesManualContainer" class="mt-3">
+                      <textarea
+                        id="machineStaticAttributesManual"
+                        rows="3"
+                        class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        placeholder='[  { "name": "brand", "type": "Text", "value": "TEXPCT" }, { "name": "location", "type": "geo:point", "value": "41.1785, -8.6087" }]'
+                      ></textarea>
+                      <p class="mt-2 text-xs text-gray-500">
+                        Provide additional static metadata in JSON format. Leave blank to skip.
+                      </p>
+                    </div>
+                    <div id="staticAttributesAutomaticContainer" class="hidden mt-4 space-y-3">
+                      <div class="grid gap-3 sm:grid-cols-3">
+                        <div>
+                          <label for="staticAttributeName" class="block text-xs font-medium text-gray-600 mb-1">Name</label>
+                          <input
+                            id="staticAttributeName"
+                            type="text"
+                            class="w-full px-2 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                            placeholder="brand"
+                          />
+                        </div>
+                        <div>
+                          <label for="staticAttributeType" class="block text-xs font-medium text-gray-600 mb-1">Type</label>
+                          <select
+                            id="staticAttributeType"
+                            class="w-full px-2 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                          >
+                            <option value="">Select type</option>
+                            <option value="integer">integer</option>
+                            <option value="float">float</option>
+                            <option value="string">string</option>
+                            <option value="boolean">boolean</option>
+                            <option value="datetime">datetime</option>
+                            <option value="StructuredValue">StructuredValue</option>
+                            <option value="Relationship">Relationship</option>
+                            <option value="geo:point">geo:point</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label for="staticAttributeValue" class="block text-xs font-medium text-gray-600 mb-1">Value</label>
+                          <input
+                            id="staticAttributeValue"
+                            type="text"
+                            class="w-full px-2 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                            placeholder="TEXPCT"
+                          />
+                        </div>
+                      </div>
+                      <div class="flex items-center justify-between">
+                        <p class="text-xs text-gray-500">Add fixed metadata entries (e.g., brand, location).</p>
+                        <button
+                          type="button"
+                          id="staticAttributeAddBtn"
+                          class="inline-flex items-center rounded-md border border-indigo-300 px-3 py-1 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                        >
+                          <i class="fas fa-plus mr-1"></i>Add static attribute
+                        </button>
+                      </div>
+                      <ul
+                        id="staticAttributeAutoList"
+                        class="rounded-md border border-gray-200 bg-white divide-y divide-gray-200 text-sm text-gray-700"
+                      >
+                        <li class="px-3 py-2 text-xs text-gray-500">No static attributes added yet.</li>
+                      </ul>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label for="machineStatus" class="block text-sm font-medium text-gray-700 mb-1">Status tag</label>
+                    <select
+                      id="machineStatus"
+                      class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    >
+                      <option value="Online">Online</option>
+                      <option value="Maintenance">Maintenance</option>
+                      <option value="Offline">Offline</option>
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label for="machineDescription" class="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+                  <textarea
+                    id="machineDescription"
+                  rows="2"
+                  class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  placeholder="Optional details (location, shift, etc.)"
+                ></textarea>
+              </div>
+              <button
+                type="submit"
+                class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 px-4 rounded-lg transition duration-200"
+              >
+                Save Machine
+              </button>
+              <p id="machineMsg" class="hidden mt-2 text-sm text-red-600"></p>
+            </form>
+          </div>
+        </div>
+
+        <div class="grid gap-6 lg:grid-cols-2">
+            <div class="border border-gray-200 rounded-lg overflow-hidden">
+              <div class="px-5 py-4 border-b border-gray-200 flex items-center justify-between bg-gray-50">
+                <h3 class="text-lg font-medium text-gray-800">Service Groups In Use</h3>
+                <span id="serviceGroupCount" class="text-sm text-gray-500">0 recorded</span>
+              </div>
+              <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                  <thead class="bg-gray-50 text-xs font-medium uppercase tracking-wide text-gray-500">
+                    <tr>
+                      <th class="px-5 py-3 text-left">API Key</th>
+                      <th class="px-5 py-3 text-left">Display Name</th>
+                      <th class="px-5 py-3 text-left">Resource</th>
+                      <th class="px-5 py-3 text-left">Entity Type</th>
+                      <th class="px-5 py-3 text-left">Context Broker</th>
+                      <th class="px-5 py-3 text-right">Actions</th>
+                  </tr>
+                  </thead>
+                  <tbody
+                    id="serviceGroupsTableBody"
+                    class="bg-white divide-y divide-gray-200 text-sm text-gray-700"
+                  >
+                    <tr>
+                      <td colspan="6" class="px-5 py-4 text-center text-gray-500">
+                        No service groups recorded yet.
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+            </div>
+          </div>
+
+          <div class="border border-gray-200 rounded-lg overflow-hidden">
+            <div class="px-5 py-4 border-b border-gray-200 flex items-center justify-between bg-gray-50">
+              <h3 class="text-lg font-medium text-gray-800">Machines In Use</h3>
+              <span id="machineCount" class="text-sm text-gray-500">0 recorded</span>
+            </div>
+            <div class="overflow-x-auto">
+              <table class="min-w-full divide-y divide-gray-200">
+                  <thead class="bg-gray-50 text-xs font-medium uppercase tracking-wide text-gray-500">
+                    <tr>
+                      <th class="px-5 py-3 text-left">Device ID</th>
+                      <th class="px-5 py-3 text-left">Entity</th>
+                      <th class="px-5 py-3 text-left">Service Group</th>
+                      <th class="px-5 py-3 text-left">Status</th>
+                      <th class="px-5 py-3 text-left">Details</th>
+                      <th class="px-5 py-3 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody
+                    id="machinesTableBody"
+                    class="bg-white divide-y divide-gray-200 text-sm text-gray-700"
+                  >
+                    <tr>
+                      <td colspan="6" class="px-5 py-4 text-center text-gray-500">
+                        No machines recorded yet.
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+
+      <!-- ORION LOGS SECTION -->
+      <section id="orionSection" class="hidden">
+        <div class="card bg-white rounded-lg p-6 mb-6">
+          <div class="flex items-center justify-between mb-6">
+            <div class="flex items-center">
+              <div class="bg-indigo-100 p-2 rounded-full mr-3">
+                <i class="fas fa-chart-line text-indigo-600"></i>
+              </div>
+              <h2 class="text-xl font-semibold text-gray-800">Orion Logs</h2>
+            </div>
+            <button
+              id="refreshLogs"
+              class="text-indigo-600 hover:text-indigo-800 text-sm font-medium flex items-center"
+            >
+              <i class="fas fa-sync-alt mr-2"></i>Refresh
+            </button>
+          </div>
+
+          <!-- FILTERS -->
+          <div class="flex flex-wrap items-center gap-4 mb-4">
+            <select
+              id="deviceFilter"
+              class="px-3 py-2 border border-gray-300 rounded-lg bg-white text-sm"
+            >
+              <option value="">All devices</option>
+            </select>
+            <input
+              id="attributeFilter"
+              type="text"
+              placeholder="Attribute contains…"
+              class="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+            />
+            <button
+              id="btnApplyFilter"
+              class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium py-2 px-4 rounded-lg"
+            >
+              Apply
+            </button>
+            <button
+              id="btnClearFilter"
+              class="bg-gray-200 hover:bg-gray-300 text-gray-800 text-sm font-medium py-2 px-4 rounded-lg"
+            >
+              Clear
+            </button>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table id="logsTable" class="min-w-full divide-y divide-gray-200">
+              <thead class="bg-gray-50">
+                <tr>
+                  <th
+                    class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase"
+                  >
+                    Device
+                  </th>
+                  <th
+                    class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase"
+                  >
+                    Attribute
+                  </th>
+                  <th
+                    class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase"
+                  >
+                    Value
+                  </th>
+                  <th
+                    class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase"
+                  >
+                    Time&nbsp;(UTC)
+                  </th>
+                  <th
+                    class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase"
+                  >
+                    Latency&nbsp;(ms)
+                  </th>
+                </tr>
+              </thead>
+              <tbody
+                id="logsTableBody"
+                class="bg-white divide-y divide-gray-200"
+              >
+                <tr>
+                  <td
+                    colspan="5"
+                    class="px-6 py-4 text-center text-sm text-gray-500"
+                  >
+                    No data
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p id="logsMessage" class="mt-3 text-sm text-red-600"></p>
+        </div>
+      </section>
+
+      <!-- HISTORICAL DATA SECTION -->
+      <section id="historicalSection" class="hidden">
+        <div class="card bg-white rounded-lg p-6 mb-6">
+          <div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between mb-6">
+            <div class="flex items-center">
+              <div class="bg-indigo-100 p-2 rounded-full mr-3">
+                <i class="fas fa-clock-rotate-left text-indigo-600"></i>
+              </div>
+              <h2 class="text-xl font-semibold text-gray-800">Historical Data</h2>
+            </div>
+            <button
+              id="refreshHistorical"
+              class="text-indigo-600 hover:text-indigo-800 text-sm font-medium flex items-center"
+            >
+              <i class="fas fa-sync-alt mr-2"></i>Refresh
+            </button>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-5">
+            <div>
+              <label class="block text-xs font-medium uppercase text-gray-500 mb-1" for="historicalDeviceSelect">Machine</label>
+              <select id="historicalDeviceSelect" class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-sm">
+                <option value="">Select machine</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-medium uppercase text-gray-500 mb-1" for="historicalAttributeSelect">Attribute</label>
+              <select id="historicalAttributeSelect" class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-sm">
+                <option value="">Select attribute</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-medium uppercase text-gray-500 mb-1" for="historicalRangeSelect">Range</label>
+              <select id="historicalRangeSelect" class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-sm">
+                <option value="15m">Last 15 minutes</option>
+                <option value="1h" selected>Last hour</option>
+                <option value="6h">Last 6 hours</option>
+                <option value="24h">Last 24 hours</option>
+              </select>
+            </div>
+            <div class="flex flex-col justify-end gap-2">
+              <button
+                id="historicalLoadBtn"
+                class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium py-2 px-4 rounded-lg"
+              >
+                Load history
+              </button>
+              <label class="inline-flex items-center justify-center gap-2 text-xs font-medium text-gray-600">
+                <span class="relative inline-flex h-5 w-9 items-center">
+                  <input id="historicalAutoRefreshToggle" type="checkbox" class="peer sr-only" />
+                  <span class="absolute inset-0 rounded-full bg-gray-300 transition-colors peer-checked:bg-indigo-600"></span>
+                  <span class="absolute left-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform peer-checked:translate-x-4"></span>
+                </span>
+                <span id="historicalAutoRefreshStatus">Auto refresh off</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="border border-gray-200 rounded-lg p-4 mb-5 bg-white">
+            <div class="flex items-center justify-between mb-3">
+              <h3 id="historicalChartTitle" class="text-sm font-semibold text-gray-700">Trend</h3>
+              <span id="historicalSampleCount" class="text-xs text-gray-500">0 samples</span>
+            </div>
+            <svg
+              id="historicalChartSvg"
+              class="w-full h-56"
+              viewBox="0 0 640 220"
+              role="img"
+              aria-label="Historical telemetry trend"
+            ></svg>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200">
+              <thead class="bg-gray-50">
+                <tr>
+                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Time (UTC)</th>
+                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Value</th>
+                </tr>
+              </thead>
+              <tbody id="historicalTableBody" class="bg-white divide-y divide-gray-200">
+                <tr>
+                  <td colspan="2" class="px-6 py-4 text-center text-sm text-gray-500">Select a machine and attribute.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p id="historicalMessage" class="mt-3 text-sm text-gray-600"></p>
+        </div>
+      </section>
+
+      <!-- DIGITAL TWIN SECTION -->
+      <section id="digitalTwinSection" class="hidden">
+        <div class="card bg-white rounded-lg p-6">
+          <div class="flex items-center mb-6">
+            <div class="bg-indigo-100 p-2 rounded-full mr-3">
+              <i class="fas fa-cube text-indigo-600"></i>
+            </div>
+            <h2 class="text-xl font-semibold text-gray-800">
+              3D Digital Twin
+            </h2>
+          </div>
+
+          <!-- 3-D viewer -->
+           <model-viewer id="machineViewer"
+                         src="models/base_basic_pbr.glb"
+                         alt="Machine Digital Twin"
+                         auto-rotate
+                         camera-controls
+                         shadow-intensity="1"
+                         style="width:100%;height:500px;background:#f3f4f6;">
+              <!-- simple progress bar -->
+               <div id="twinLoader" 
+                    slot="progress-bar"
+                    class="absolute inset-0 flex items-center justify-center 
+                           pointer-events-none">
+                <i class="fas fa-spinner fa-spin text-indigo-600 text-2xl"></i>
+              </div>
+            </model-viewer>
+        </div>
+      </section>
+
+      <section id="rolesSection" class="hidden">
+        <div class="card bg-white rounded-lg p-6 mb-6">
+          <div class="flex items-center justify-between mb-2">
+            <h2 class="text-xl font-semibold text-gray-800">Roles & Permissions</h2>
+            <button
+              id="refreshRolesPermissions"
+              class="text-indigo-600 hover:text-indigo-800 text-sm font-medium flex items-center"
+            >
+              <i class="fas fa-sync-alt mr-2"></i>Refresh
+            </button>
+          </div>
+          <p class="text-sm text-gray-600">Manage roles and role-specific permissions.</p>
+          <div id="rolesPermissionsMessage" class="mt-3 text-sm text-red-600"></div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div class="card bg-white rounded-lg p-6">
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="text-lg font-semibold text-gray-800">Roles Management</h3>
+            </div>
+            <form id="createRoleForm" class="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3 mb-4" onsubmit="return false;">
+              <input
+                type="text"
+                id="roleName"
+                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                placeholder="New role name"
+              />
+              <button
+                type="button"
+                id="btnCreateRole"
+                class="bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 px-4 rounded-lg transition duration-200"
+              >
+                Create Role
+              </button>
+            </form>
+            <div id="roleCreateMsg" class="text-sm text-red-600 mb-4"></div>
+            <div class="overflow-x-auto">
+              <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                  <tr>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
+                    <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="rolesTableBody" class="bg-white divide-y divide-gray-200">
+                  <tr>
+                    <td colspan="2" class="px-4 py-3 text-center text-sm text-gray-500">No roles loaded.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div id="rolePermissionsPanel" class="card bg-white rounded-lg p-6">
+            <div class="flex items-center justify-between mb-4">
+              <h3 id="rolePermissionsTitle" class="text-lg font-semibold text-gray-800">Select a role</h3>
+              <button
+                type="button"
+                id="closeRolePermissions"
+                class="text-sm text-gray-600 hover:text-gray-800 font-medium"
+              >
+                <i class="fas fa-times mr-1"></i>Close
+              </button>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3 mb-4">
+              <select
+                id="rolePermissionAssignSelect"
+                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              >
+                <option value="">Select permission</option>
+              </select>
+              <div class="flex flex-wrap gap-2 justify-start sm:justify-end">
+                <button
+                  type="button"
+                  id="btnAssignPermissionToRole"
+                  class="bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 px-4 rounded-lg transition duration-200"
+                >
+                  Assign Permission
+                </button>
+                <button
+                  type="button"
+                  id="btnListAllPermissions"
+                  class="inline-flex items-center rounded-md border border-indigo-300 px-3 py-2 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                >
+                  List all permissions
+                </button>
+              </div>
+            </div>
+            <div class="overflow-x-auto">
+              <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                  <tr>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Resource / XACML</th>
+                    <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="rolePermissionsTableBody" class="bg-white divide-y divide-gray-200">
+                  <tr>
+                    <td colspan="4" class="px-4 py-3 text-center text-sm text-gray-500">No role selected.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div id="rolePermissionsDetailMsg" class="mt-3 text-sm text-red-600"></div>
+          </div>
+        </div>
+
+        <div class="card bg-white rounded-lg p-6 mt-6">
+            <h3 class="text-lg font-semibold text-gray-800 mb-4">Assign Roles To Users / Delete Users</h3>
+            <div class="overflow-x-auto">
+              <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                  <tr>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Assigned roles</th>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Assign role</th>
+                    <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="roleAssignmentsTableBody" class="bg-white divide-y divide-gray-200">
+                  <tr>
+                    <td colspan="4" class="px-4 py-3 text-center text-sm text-gray-500">No users loaded.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div id="roleAssignmentsMsg" class="mt-3 text-sm text-red-600"></div>
+          </div>
+      </section>
+
+      <div id="permissionEditorModal" class="fixed inset-0 bg-gray-900/60 hidden items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-lg shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto p-6">
+          <div class="flex items-center justify-between mb-4">
+            <h3 id="permissionFormTitle" class="text-lg font-semibold text-gray-800">Create Permission</h3>
+            <button id="permissionEditorClose" class="text-gray-500 hover:text-gray-700">
+              <i class="fas fa-times"></i>
+            </button>
+          </div>
+          <form id="createPermissionForm" class="space-y-4" onsubmit="return false;">
+            <input type="hidden" id="permissionEditId" />
+            <select id="permissionAssignRole" class="hidden"></select>
+            <div class="grid md:grid-cols-2 gap-4">
+              <div>
+                <label for="permissionName" class="block text-sm font-medium text-gray-700 mb-1">Permission name *</label>
+                <input
+                  type="text"
+                  id="permissionName"
+                  class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  placeholder="e.g. Orion Entities Read"
+                />
+              </div>
+              <div>
+                <label for="permissionAction" class="block text-sm font-medium text-gray-700 mb-1">HTTP action</label>
+                <select
+                  id="permissionAction"
+                  class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                >
+                  <option value="">Select action</option>
+                  <option value="GET">GET</option>
+                  <option value="POST">POST</option>
+                  <option value="PUT">PUT</option>
+                  <option value="PATCH">PATCH</option>
+                  <option value="DELETE">DELETE</option>
+                  <option value="HEAD">HEAD</option>
+                  <option value="OPTIONS">OPTIONS</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label for="permissionDescription" class="block text-sm font-medium text-gray-700 mb-1">Description</label>
+              <textarea
+                id="permissionDescription"
+                rows="2"
+                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                placeholder="Optional description"
+              ></textarea>
+            </div>
+
+            <div class="grid md:grid-cols-2 gap-4">
+              <div>
+                <label for="permissionResource" class="block text-sm font-medium text-gray-700 mb-1">Resource rule</label>
+                <input
+                  type="text"
+                  id="permissionResource"
+                  class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  placeholder="e.g. ^/v2/entities/?(\\?.*)?$"
+                />
+              </div>
+              <div>
+                <label for="permissionAuthHeader" class="block text-sm font-medium text-gray-700 mb-1">Authorization service header</label>
+                <input
+                  type="text"
+                  id="permissionAuthHeader"
+                  class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  placeholder="e.g. fiware-service:openiot"
+                />
+              </div>
+            </div>
+
+            <div class="grid md:grid-cols-2 gap-4">
+              <label class="inline-flex items-center text-sm text-gray-700">
+                <input
+                  type="checkbox"
+                  id="permissionIsRegex"
+                  class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+                />
+                <span class="ml-2">Is regular expression?</span>
+              </label>
+              <label class="inline-flex items-center text-sm text-gray-700">
+                <input
+                  type="checkbox"
+                  id="permissionUseAuthHeader"
+                  class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+                />
+                <span class="ml-2">Use authorization service header</span>
+              </label>
+            </div>
+
+            <div>
+              <div class="flex items-center justify-between mb-1">
+                <label for="permissionXml" class="block text-sm font-medium text-gray-700">Advanced XACML rule</label>
+                <button
+                  type="button"
+                  id="permissionXmlHelpBtn"
+                  class="text-xs font-semibold text-indigo-600 hover:text-indigo-800"
+                >
+                  <i class="fas fa-circle-info mr-1"></i>Help
+                </button>
+              </div>
+              <textarea
+                id="permissionXml"
+                rows="9"
+                class="w-full px-4 py-2 border border-gray-300 rounded-lg font-mono text-xs focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                placeholder="<Rule RuleId=\"custom-rule\" Effect=\"Permit\">...</Rule>"
+              ></textarea>
+              <p class="mt-1 text-xs text-gray-500">
+                If you set an XACML rule, leave HTTP action/resource and authorization header fields empty.
+              </p>
+            </div>
+
+            <div class="flex justify-end">
+              <button
+                type="button"
+                id="btnDeletePermissionGlobal"
+                class="mr-3 hidden bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-4 rounded-lg transition duration-200"
+              >
+                Delete Permission
+              </button>
+              <button
+                type="button"
+                id="btnCancelPermissionEdit"
+                class="mr-3 bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-2 px-4 rounded-lg transition duration-200"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                id="btnCreatePermission"
+                class="bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-2 px-4 rounded-lg transition duration-200"
+              >
+                Save Permission
+              </button>
+            </div>
+            <div id="permissionCreateMsg" class="text-sm text-red-600"></div>
+          </form>
+        </div>
+      </div>
+
+      <div id="allPermissionsModal" class="fixed inset-0 bg-gray-900/60 hidden items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-lg shadow-xl max-w-5xl w-full max-h-[90vh] overflow-y-auto p-6">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-semibold text-gray-800">All Permissions</h3>
+            <button id="allPermissionsClose" class="text-gray-500 hover:text-gray-700">
+              <i class="fas fa-times"></i>
+            </button>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200">
+              <thead class="bg-gray-50">
+                <tr>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Resource / XACML</th>
+                  <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="allPermissionsTableBody" class="bg-white divide-y divide-gray-200">
+                <tr>
+                  <td colspan="4" class="px-4 py-3 text-center text-sm text-gray-500">No permissions loaded.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div id="allPermissionsMsg" class="mt-3 text-sm text-red-600"></div>
+        </div>
+      </div>
+
+      <!-- PLACEHOLDER SECTIONS -->
+      <section id="auditSection" class="hidden">
+        <div class="card bg-white rounded-lg p-6">
+          <h2 class="text-xl font-semibold text-gray-800 mb-2">Audit Logs</h2>
+          <p class="text-gray-600">Coming soon.</p>
+        </div>
+      </section>
+      <section id="settingsSection" class="hidden">
+        <div class="card bg-white rounded-lg p-6">
+          <h2 class="text-xl font-semibold text-gray-800 mb-2">Security Settings</h2>
+          <p class="text-gray-600">Coming soon.</p>
+        </div>
+      </section>
+    </main>
+
+    <div id="xacmlHelpModal" class="fixed inset-0 bg-gray-900/60 hidden items-center justify-center z-50 p-4">
+      <div class="bg-white rounded-lg shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto p-6">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="text-lg font-semibold text-gray-800">XACML Help (FIWARE + Authzforce)</h3>
+          <button id="xacmlHelpClose" class="text-gray-500 hover:text-gray-700">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+        <p class="text-sm text-gray-700 mb-3">
+          Keyrock must run with advanced PDP mode (`IDM_PDP_LEVEL=advanced`) to accept `permission.xml` rules.
+        </p>
+        <p class="text-sm text-gray-700 mb-2">Typical FIWARE/Authzforce attributes used in rules:</p>
+        <ul class="list-disc pl-5 text-sm text-gray-700 space-y-1 mb-3">
+          <li>`urn:thales:xacml:2.0:resource:sub-resource-id` for resource path matching.</li>
+          <li>`urn:oasis:names:tc:xacml:1.0:action:action-id` for HTTP method matching.</li>
+          <li>`urn:oasis:names:tc:xacml:2.0:subject:role` for role checks.</li>
+        </ul>
+        <p class="text-sm text-gray-700 mb-2">Minimal rule template:</p>
+        <pre class="bg-gray-50 border border-gray-200 rounded-md p-3 text-xs text-gray-800 overflow-auto">&lt;Rule RuleId="custom-rule-id" Effect="Permit"&gt;
+  &lt;Description&gt;Allow a role on selected method/path&lt;/Description&gt;
+  &lt;Target&gt;
+    &lt;AnyOf&gt;
+      &lt;AllOf&gt;
+        &lt;Match MatchId="urn:oasis:names:tc:xacml:1.0:function:string-regexp-match"&gt;
+          &lt;AttributeValue DataType="http://www.w3.org/2001/XMLSchema#string"&gt;^/v2/entities/?(\\?.*)?$&lt;/AttributeValue&gt;
+          &lt;AttributeDesignator Category="urn:oasis:names:tc:xacml:3.0:attribute-category:resource"
+            AttributeId="urn:thales:xacml:2.0:resource:sub-resource-id"
+            DataType="http://www.w3.org/2001/XMLSchema#string" MustBePresent="true" /&gt;
+        &lt;/Match&gt;
+      &lt;/AllOf&gt;
+    &lt;/AnyOf&gt;
+    &lt;AnyOf&gt;
+      &lt;AllOf&gt;
+        &lt;Match MatchId="urn:oasis:names:tc:xacml:1.0:function:string-equal"&gt;
+          &lt;AttributeValue DataType="http://www.w3.org/2001/XMLSchema#string"&gt;GET&lt;/AttributeValue&gt;
+          &lt;AttributeDesignator Category="urn:oasis:names:tc:xacml:3.0:attribute-category:action"
+            AttributeId="urn:oasis:names:tc:xacml:1.0:action:action-id"
+            DataType="http://www.w3.org/2001/XMLSchema#string" MustBePresent="true" /&gt;
+        &lt;/Match&gt;
+      &lt;/AllOf&gt;
+    &lt;/AnyOf&gt;
+  &lt;/Target&gt;
+  &lt;Condition&gt;
+    &lt;Apply FunctionId="urn:oasis:names:tc:xacml:3.0:function:any-of"&gt;
+      &lt;Function FunctionId="urn:oasis:names:tc:xacml:1.0:function:string-equal" /&gt;
+      &lt;AttributeValue DataType="http://www.w3.org/2001/XMLSchema#string"&gt;ROLE_ID_HERE&lt;/AttributeValue&gt;
+      &lt;AttributeDesignator AttributeId="urn:oasis:names:tc:xacml:2.0:subject:role"
+        Category="urn:oasis:names:tc:xacml:1.0:subject-category:access-subject"
+        DataType="http://www.w3.org/2001/XMLSchema#string" MustBePresent="false" /&gt;
+    &lt;/Apply&gt;
+  &lt;/Condition&gt;
+&lt;/Rule&gt;</pre>
+        <p class="text-sm text-gray-700 mt-3">
+          References:
+          <a class="text-indigo-600 hover:text-indigo-800 underline" target="_blank" rel="noopener noreferrer" href="https://fiware-idm.readthedocs.io/en/latest/installation_and_administration_guide/configuration.html#configure-policy-decision-point-pdp">FIWARE Keyrock PDP configuration</a>,
+          <a class="text-indigo-600 hover:text-indigo-800 underline" target="_blank" rel="noopener noreferrer" href="https://authzforce-ce-fiware.readthedocs.io/en/release-11.0.0/UserAndProgrammersGuide.html#integration-with-identity-management-system-and-policy-enforcement-point">Authzforce integration guide</a>.
+        </p>
+      </div>
+    </div>
+
+    <!-- Edit Machine Modal -->
+    <div id="editMachineModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50 p-4">
+      <div class="bg-white rounded-lg shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto p-6">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-lg font-semibold text-gray-800">
+            <i class="fas fa-microchip mr-2 text-indigo-500"></i>Edit Machine
+          </h3>
+          <button id="editMachineClose" class="text-gray-500 hover:text-gray-700 text-xl leading-none">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+        <form id="editMachineForm" class="space-y-4" autocomplete="off">
+          <input type="hidden" id="editMachineOriginalDeviceId" />
+          <div class="grid md:grid-cols-2 gap-4">
+            <div>
+              <label for="editMachineDeviceId" class="block text-sm font-medium text-gray-700 mb-1">Device ID</label>
+              <input type="text" id="editMachineDeviceId" readonly
+                class="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-50 text-gray-500 cursor-not-allowed" />
+            </div>
+            <div>
+              <label for="editMachineServiceGroup" class="block text-sm font-medium text-gray-700 mb-1">Service group</label>
+              <select id="editMachineServiceGroup"
+                class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors">
+                <option value="">Select a service group</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label for="editMachineName" class="block text-sm font-medium text-gray-700 mb-1">Machine name</label>
+            <input type="text" id="editMachineName" required
+              class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              placeholder="e.g. Hydraulic Press 01" />
+          </div>
+          <div>
+            <label for="editMachineModel" class="block text-sm font-medium text-gray-700 mb-1">Model / Asset ID</label>
+            <input type="text" id="editMachineModel"
+              class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              placeholder="e.g. HP-2000" />
+          </div>
+          <div class="space-y-4">
+            <!-- Telemetry Attributes -->
+            <div class="border border-gray-200 rounded-lg p-4">
+              <div>
+                <h4 class="text-sm font-semibold text-gray-800">Telemetry Attributes</h4>
+                <p class="text-xs text-gray-500">Define how this device sends live telemetry.</p>
+              </div>
+              <div class="mt-3">
+                <span class="text-xs font-semibold uppercase tracking-wide text-indigo-600">Mode</span>
+                <div id="editAttributeModeToggle"
+                  class="mode-toggle relative w-full h-12 rounded-full select-none focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors mt-2"
+                  role="switch" aria-checked="false" tabindex="0">
+                  <div class="mode-knob absolute top-1 left-1 h-10 w-24 rounded-full bg-white shadow-lg transition-all duration-300 ease-out pointer-events-none">
+                    <span class="mode-knob-label mode-knob-label-manual text-indigo-700">Manual</span>
+                    <span class="mode-knob-label mode-knob-label-auto text-emerald-700">Automatic</span>
+                  </div>
+                </div>
+              </div>
+              <div id="editAttributeManualContainer" class="mt-3">
+                <textarea id="editMachineAttributesManual" rows="3"
+                  class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  placeholder='[{"object_id":"state/machine_status","name":"machineStatus","type":"integer"}]'></textarea>
+                <p class="mt-2 text-xs text-gray-500">Provide IoT Agent attributes in JSON format. Leave blank to register without telemetry mappings.</p>
+              </div>
+              <div id="editAttributeAutomaticContainer" class="hidden mt-4 space-y-3">
+                <div class="grid gap-3 sm:grid-cols-3">
+                  <div>
+                    <label for="editAttributeObjectId" class="block text-xs font-medium text-gray-600 mb-1">Object ID</label>
+                    <input id="editAttributeObjectId" type="text"
+                      class="w-full px-2 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      placeholder="state/name_state" />
+                  </div>
+                  <div>
+                    <label for="editAttributeName" class="block text-xs font-medium text-gray-600 mb-1">Name</label>
+                    <input id="editAttributeName" type="text"
+                      class="w-full px-2 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      placeholder="machineState" />
+                  </div>
+                  <div>
+                    <label for="editAttributeType" class="block text-xs font-medium text-gray-600 mb-1">Type</label>
+                    <select id="editAttributeType"
+                      class="w-full px-2 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                      <option value="">Select type</option>
+                      <option value="integer">integer</option>
+                      <option value="float">float</option>
+                      <option value="string">string</option>
+                      <option value="boolean">boolean</option>
+                      <option value="datetime">datetime</option>
+                      <option value="StructuredValue">StructuredValue</option>
+                      <option value="Relationship">Relationship</option>
+                      <option value="geo:point">geo:point</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="flex items-center justify-between">
+                  <p class="text-xs text-gray-500">Add each telemetry attribute you want to expose.</p>
+                  <button type="button" id="editAttributeAddBtn"
+                    class="inline-flex items-center rounded-md border border-indigo-300 px-3 py-1 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2">
+                    <i class="fas fa-plus mr-1"></i>Add attribute
+                  </button>
+                </div>
+                <ul id="editAttributeAutoList"
+                  class="rounded-md border border-gray-200 bg-white divide-y divide-gray-200 text-sm text-gray-700">
+                  <li class="px-3 py-2 text-xs text-gray-500">No attributes added yet.</li>
+                </ul>
+              </div>
+            </div>
+
+            <!-- Static Attributes -->
+            <div class="border border-gray-200 rounded-lg p-4">
+              <div>
+                <h4 class="text-sm font-semibold text-gray-800">Static Attributes (optional)</h4>
+                <p class="text-xs text-gray-500">Describe fixed metadata such as brand or location.</p>
+              </div>
+              <div class="mt-3">
+                <span class="text-xs font-semibold uppercase tracking-wide text-indigo-600">Mode</span>
+                <div id="editStaticAttributesModeToggle"
+                  class="mode-toggle relative w-full h-12 rounded-full select-none focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors mt-2"
+                  role="switch" aria-checked="false" tabindex="0">
+                  <div class="mode-knob absolute top-1 left-1 h-10 w-24 rounded-full bg-white shadow-lg transition-all duration-300 ease-out pointer-events-none">
+                    <span class="mode-knob-label mode-knob-label-manual text-indigo-700">Manual</span>
+                    <span class="mode-knob-label mode-knob-label-auto text-emerald-700">Automatic</span>
+                  </div>
+                </div>
+              </div>
+              <div id="editStaticAttributesManualContainer" class="mt-3">
+                <textarea id="editMachineStaticAttributesManual" rows="3"
+                  class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  placeholder='[{ "name": "brand", "type": "Text", "value": "TEXPCT" }]'></textarea>
+                <p class="mt-2 text-xs text-gray-500">Provide additional static metadata in JSON format. Leave blank to skip.</p>
+              </div>
+              <div id="editStaticAttributesAutomaticContainer" class="hidden mt-4 space-y-3">
+                <div class="grid gap-3 sm:grid-cols-3">
+                  <div>
+                    <label for="editStaticAttributeName" class="block text-xs font-medium text-gray-600 mb-1">Name</label>
+                    <input id="editStaticAttributeName" type="text"
+                      class="w-full px-2 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      placeholder="brand" />
+                  </div>
+                  <div>
+                    <label for="editStaticAttributeType" class="block text-xs font-medium text-gray-600 mb-1">Type</label>
+                    <select id="editStaticAttributeType"
+                      class="w-full px-2 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                      <option value="">Select type</option>
+                      <option value="integer">integer</option>
+                      <option value="float">float</option>
+                      <option value="string">string</option>
+                      <option value="boolean">boolean</option>
+                      <option value="datetime">datetime</option>
+                      <option value="StructuredValue">StructuredValue</option>
+                      <option value="Relationship">Relationship</option>
+                      <option value="geo:point">geo:point</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label for="editStaticAttributeValue" class="block text-xs font-medium text-gray-600 mb-1">Value</label>
+                    <input id="editStaticAttributeValue" type="text"
+                      class="w-full px-2 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      placeholder="TEXPCT" />
+                  </div>
+                </div>
+                <div class="flex items-center justify-between">
+                  <p class="text-xs text-gray-500">Add fixed metadata entries (e.g., brand, location).</p>
+                  <button type="button" id="editStaticAttributeAddBtn"
+                    class="inline-flex items-center rounded-md border border-indigo-300 px-3 py-1 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2">
+                    <i class="fas fa-plus mr-1"></i>Add static attribute
+                  </button>
+                </div>
+                <ul id="editStaticAttributeAutoList"
+                  class="rounded-md border border-gray-200 bg-white divide-y divide-gray-200 text-sm text-gray-700">
+                  <li class="px-3 py-2 text-xs text-gray-500">No static attributes added yet.</li>
+                </ul>
+              </div>
+            </div>
+
+            <div>
+              <label for="editMachineStatus" class="block text-sm font-medium text-gray-700 mb-1">Status tag</label>
+              <select id="editMachineStatus"
+                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                <option value="Online">Online</option>
+                <option value="Maintenance">Maintenance</option>
+                <option value="Offline">Offline</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label for="editMachineDescription" class="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+            <textarea id="editMachineDescription" rows="2"
+              class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              placeholder="Optional details (location, shift, etc.)"></textarea>
+          </div>
+          <p id="editMachineMsg" class="hidden mt-2 text-sm text-red-600"></p>
+          <div class="flex justify-end gap-3 pt-2">
+            <button type="button" id="editMachineCancelBtn"
+              class="bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-2 px-4 rounded-lg transition duration-200">
+              Cancel
+            </button>
+            <button type="submit"
+              class="bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 px-4 rounded-lg transition duration-200">
+              Save Changes
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- FOOTER -->
+    <footer class="mt-12 text-center text-sm text-gray-500">
+      <p>© 2025 Digital Twin Security Portal. All rights reserved.</p>
+    </footer>
+  </div>
+
+  <!-- Machine Attributes Modal -->
+  <div id="machineAttributesModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col">
+      <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 shrink-0">
+        <h2 class="text-base font-semibold text-gray-800" id="machineAttributesModalTitle">Attributes</h2>
+        <button type="button" id="machineAttributesModalClose"
+          class="text-gray-400 hover:text-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-400 rounded">
+          <i class="fas fa-times text-lg"></i>
+        </button>
+      </div>
+      <div class="flex flex-1 overflow-hidden divide-x divide-gray-200 min-h-0">
+        <!-- Left: Visual -->
+        <div class="w-1/2 overflow-y-auto p-6">
+          <div id="machineAttributesVisual"></div>
+        </div>
+        <!-- Right: JSON -->
+        <div class="w-1/2 overflow-y-auto p-6 bg-gray-50 flex flex-col">
+          <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">JSON</p>
+          <pre id="machineAttributesJson" class="text-xs text-gray-700 whitespace-pre-wrap break-words font-mono"></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Load JavaScript modules in the correct order -->
+  <script src="js/runtime-config.js"></script>
+  <script type="module"
+    src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js">
+  </script>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
