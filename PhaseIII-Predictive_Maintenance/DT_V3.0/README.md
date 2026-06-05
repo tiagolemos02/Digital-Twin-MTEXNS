@@ -1,8 +1,5 @@
-<<<<<<< HEAD
 # Phase III - Predictive Maintenance v0.2
 =======
-# Phase III - Predictive Maintenance
->>>>>>> 085f3895f78585a351fd2c656ef1996778c048b8
 
 **This phase starts the predictive maintenance roadmap by adding the historical telemetry foundation required for later machine learning.**
 
@@ -61,7 +58,7 @@ This phase deliberately separates **data collection** from **prediction**. Predi
 
 ## New in v0.2
 
-### Machine registration control - portal-only "Machines in Use"
+### ✅ Machine registration control - portal-only "Machines in Use"
 
 Previously, IoT Agent devices could be surfaced in **Machines in Use** even when they were only auto-provisioned by telemetry traffic and had not been explicitly registered through the portal.
 
@@ -85,7 +82,7 @@ serviceGroupSubservice
 
 ---
 
-### Device picker in "Add Machine" form
+### ✅ Device picker in "Add Machine" form
 
 When the user selects a service group in the **Add Machine** form, the portal immediately refreshes the IoT Agent device list and shows a collapsible **Available device IDs from IoT Agent** picker.
 
@@ -101,7 +98,7 @@ This avoids the previous manual page-refresh requirement after selecting an exis
 
 ---
 
-### Dynamic `machine_status` codes and colors
+### ✅ Dynamic `machine_status` codes and colors
 
 The runtime machine status shown in **Machines in Use** and **Orion Logs** is now driven by live Orion telemetry, not by the form status tag.
 
