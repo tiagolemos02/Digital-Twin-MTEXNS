@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 # Phase III - Predictive Maintenance v0.2
+=======
+# Phase III - Predictive Maintenance
+>>>>>>> 085f3895f78585a351fd2c656ef1996778c048b8
 
 **This phase starts the predictive maintenance roadmap by adding the historical telemetry foundation required for later machine learning.**
 
@@ -8,7 +12,7 @@ The existing Phase II security model remains the baseline: browser traffic goes 
 
 ## Project Identification
 
-**Repository**: `tiagolemos02/PhaseIII-PM/DT_V3.0.1`
+**Repository**: `tiagolemos02/PhaseIII-PM/DT_V3.0`
 
 **Phase**: `Phase III - Predictive Maintenance`
 
@@ -457,7 +461,7 @@ sudo sysctl -p
 Open PowerShell in:
 
 ```powershell
-cd DT_V2.3/docker_compose
+cd DT_V3.0/docker_compose
 ```
 
 Generate local secrets and `.env` values:
@@ -466,13 +470,18 @@ Generate local secrets and `.env` values:
 ./bootstrap/prepare-env.ps1
 ```
 
+For linux users run:
+```shell
+pwsh-lts -File ./prepare-env.ps1
+```
+
 Start the stack:
 
 ```powershell
 docker compose up -d --build
 ```
 
-Open the portal:
+Open the portal (localhost or ip):
 
 ```text
 http://localhost:8001
