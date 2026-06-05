@@ -11,6 +11,7 @@ import {
 } from './dom-elements.js';
 import { updateActivityFromDevices, getDeviceActivity } from './device-activity.js';
 import { getRegisteredMachineEntityIds, getRegisteredMachineAttributeNames, getMachineLabel } from './inventory.js';
+import { DEFAULT_MACHINE_STATUS, renderMachineStatusBadge } from './machine-status.js';
 
 // In-memory storage for logs filtering
 let logsGrouped = [];
@@ -181,11 +182,13 @@ export async function listLogs() {
          if (activity) {
              deviceEntry.offline = activity.offline;
              deviceEntry.status = activity.status;
+             deviceEntry.machineStatus = activity.machineStatus || DEFAULT_MACHINE_STATUS;
              deviceEntry.lastUpdateIso = activity.lastUpdateIso || "-";
              deviceEntry.lastUpdateMs = activity.lastUpdateMs ?? null;
          } else {
              deviceEntry.offline = !deviceEntry.attributes.length;
              deviceEntry.status = deviceEntry.offline ? "Offline" : "Unknown";
+             deviceEntry.machineStatus = DEFAULT_MACHINE_STATUS;
              deviceEntry.lastUpdateIso = "-";
              deviceEntry.lastUpdateMs = null;
          }
@@ -271,7 +274,7 @@ function createDeviceRow(device) {
     const devRow = document.createElement("tr");
     devRow.classList.add("device-row", "bg-indigo-50");
     devRow.style.cursor = "pointer"; 
-    const statusBadge = renderDeviceStatusBadge(device.status);
+    const statusBadge = renderMachineStatusBadge(device.machineStatus || DEFAULT_MACHINE_STATUS, 'mr-2');
     devRow.innerHTML = `
         <td colspan="5" class="px-6 py-4 font-medium text-sm">
             <i id="arrow-${safeId(device.id)}" class="fas fa-chevron-right arrow-icon mr-2"></i>${statusBadge}<span>${escapeHtml(getMachineLabel(device.id))}</span>
@@ -300,17 +303,6 @@ function createAttributeRow(attr, deviceId) {
         <td class='px-6 py-4 text-sm'>${attr.latency}</td>`;
 
     return attrRow;
-}
-
-function renderDeviceStatusBadge(status) {
-    const label = typeof status === "string" ? status.trim().toLowerCase() : "";
-    if (label === "offline") {
-        return `<span class="inline-flex items-center mr-2 px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-xs font-semibold uppercase tracking-wide">Offline</span>`;
-    }
-    if (label === "online") {
-        return `<span class="inline-flex items-center mr-2 px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-semibold uppercase tracking-wide">Online</span>`;
-    }
-    return "";
 }
 
 /**

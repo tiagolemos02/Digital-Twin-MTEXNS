@@ -1,5 +1,6 @@
 import { ENTITY_TYPE, sessionToken } from './config.js';
 import { apiFetch } from './api-client.js';
+import { extractMachineStatusFromEntity } from './machine-status.js';
 
 export const OFFLINE_THRESHOLD_MS = 5 * 60 * 1000;
 
@@ -33,6 +34,7 @@ function bestTimestamp(...candidates) {
 function analyzeDevice(device = {}, now, offlineThresholdMs) {
   const entityId = device.id || '';
   if (!entityId) return null;
+  const machineStatus = extractMachineStatusFromEntity(device);
 
   let latestMs = bestTimestamp(device.TimeInstant, device.timeInstant, device.observedAt);
   let latestIso = latestMs !== null ? new Date(latestMs).toISOString() : '';
@@ -72,6 +74,9 @@ function analyzeDevice(device = {}, now, offlineThresholdMs) {
     lastUpdateIso: latestIso,
     lastUpdateAttribute: latestSource,
     attributeCount,
+    machineStatus,
+    machineStatusCode: machineStatus.code,
+    machineStatusName: machineStatus.name,
     offlineThresholdMs,
     capturedAt: now
   };

@@ -14,7 +14,7 @@ const Sensor SensorGenerators::sensors[] = {
 const uint8_t SensorGenerators::SENSOR_COUNT = sizeof(sensors) / sizeof(sensors[0]);
 
 float SensorGenerators::genStatus() {
-  return 1;
+  return 203;
 }
 
 float SensorGenerators::genAmbientTemp() {

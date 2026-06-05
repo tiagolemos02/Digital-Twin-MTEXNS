@@ -61,6 +61,12 @@ import {
   getDeviceActivity,
   getLastActivityFetchTime
 } from './device-activity.js';
+import {
+  DEFAULT_MACHINE_STATUS,
+  getMachineStatusByCode,
+  renderMachineStatusBadge,
+  renderMachineStatusOptions
+} from './machine-status.js';
 
 let serviceGroups = [];
 let machines = [];
@@ -78,6 +84,7 @@ let editTelemetryAttributeEntries = [];
 let editStaticAttributeEntries = [];
 let editTelemetryInputMode = 'manual';
 let editStaticInputMode = 'manual';
+let devicePickerRefreshToken = 0;
 
 const LOCAL_REGISTERED_KEY = 'dt_portal_registered_devices';
 
@@ -104,8 +111,17 @@ function removeLocalRegisteredId(deviceId) {
   localStorage.setItem(LOCAL_REGISTERED_KEY, JSON.stringify([...ids]));
 }
 
+function getPortalRegisteredDeviceIds(devices = allIotDevices) {
+  return new Set(
+    devices
+      .filter((device) => device?.isPortalRegistered && device.deviceId)
+      .map((device) => device.deviceId)
+  );
+}
+
 const SYSTEM_STATIC_ATTR_NAMES = new Set([
   'friendlyName', 'model', 'notes', 'operationalStatus',
+  'machineStatusPlaceholderCode', 'machineStatusPlaceholderName',
   'serviceGroupKey', 'serviceGroupResource', 'serviceGroupApikey',
   'serviceGroupFiware', 'serviceGroupSubservice'
 ]);
@@ -179,6 +195,7 @@ export function initInventory() {
   staticAttributeAddBtn?.addEventListener('click', handleAddStaticAttribute);
   attributeAutoList?.addEventListener('click', handleTelemetryAttributeListClick);
   staticAttributeAutoList?.addEventListener('click', handleStaticAttributeListClick);
+  setupMachineStatusControls();
 
   machineServiceGroup?.addEventListener('change', handleServiceGroupPickerChange);
   deviceIdPickerToggle?.addEventListener('click', () => {
@@ -222,7 +239,7 @@ async function loadInventory() {
   await fetchMachines();
   renderMachines();
   // Refresh picker in case a service group was already selected when machines loaded.
-  handleServiceGroupPickerChange();
+  await handleServiceGroupPickerChange({ refreshDevices: false });
 }
 
 function startMachineStatusTicker() {
@@ -397,6 +414,37 @@ function initializeAttributeInputs() {
   resetAttributeInputs();
   attributeModeToggle?.setAttribute('aria-checked', 'false');
   staticAttributesModeToggle?.setAttribute('aria-checked', 'false');
+}
+
+function setupMachineStatusControls() {
+  populateMachineStatusSelect(machineStatus);
+  updateMachineStatusPreview('machineStatusPreview', machineStatus?.value);
+  machineStatus?.addEventListener('change', () => {
+    updateMachineStatusPreview('machineStatusPreview', machineStatus.value);
+  });
+
+  const editStatus = document.getElementById('editMachineStatus');
+  populateMachineStatusSelect(editStatus);
+  updateMachineStatusPreview('editMachineStatusPreview', editStatus?.value);
+  editStatus?.addEventListener('change', () => {
+    updateMachineStatusPreview('editMachineStatusPreview', editStatus.value);
+  });
+}
+
+function populateMachineStatusSelect(select, selectedCode = DEFAULT_MACHINE_STATUS.code) {
+  if (!select) return;
+  select.innerHTML = renderMachineStatusOptions(selectedCode);
+  select.value = String(getMachineStatusByCode(selectedCode).code);
+}
+
+function updateMachineStatusPreview(previewId, code) {
+  const preview = document.getElementById(previewId);
+  if (!preview) return;
+  preview.innerHTML = renderMachineStatusBadge(getMachineStatusByCode(code));
+}
+
+function getSelectedMachineStatusPlaceholder(select) {
+  return getMachineStatusByCode(select?.value || DEFAULT_MACHINE_STATUS.code);
 }
 
 function resetAttributeInputs() {
@@ -666,12 +714,11 @@ async function fetchMachines() {
     const entries = Array.isArray(payload.devices) ? payload.devices : [];
     const normalizedDevices = entries.map(normalizeDevice);
     allIotDevices = mergeDuplicateDevices(normalizedDevices);
-    const registeredIds = getLocalRegisteredIds();
-    // Deduplicate by deviceId — the IoT Agent can hold two records for the same device
-    // (auto-provisioned + portal PUT), producing duplicate rows. Keep only the preferred entry.
+    // Only devices that carry portal metadata are Machines In Use. Auto-provisioned
+    // IoT Agent devices remain available for onboarding.
     const machineMap = new Map();
     for (const d of allIotDevices) {
-      if (!registeredIds.has(d.deviceId)) continue;
+      if (!d.isPortalRegistered) continue;
       const existing = machineMap.get(d.deviceId);
       if (!existing || isPreferredMachineEntry(d, existing)) {
         machineMap.set(d.deviceId, d);
@@ -866,6 +913,7 @@ async function handleDeleteServiceGroup(button, group) {
 
     await fetchMachines();
     renderMachines();
+    handleServiceGroupPickerChange({ refreshDevices: false });
   } catch (error) {
     console.error('Error deleting service group:', error);
     const message = error instanceof Error ? error.message : String(error);
@@ -943,6 +991,7 @@ async function handleDeleteMachine(button, machine) {
 
     await fetchMachines();
     renderMachines();
+    handleServiceGroupPickerChange({ refreshDevices: false });
   } catch (error) {
     console.error('Error deleting machine:', error);
     const message = error instanceof Error ? error.message : String(error);
@@ -976,15 +1025,15 @@ async function handleMachineSubmit(event) {
   const model = machineModel?.value.trim() || '';
   const description = machineDescription?.value.trim() || '';
   const selectedServiceKey = machineServiceGroup?.value || '';
-  const status = machineStatus?.value || '';
+  const statusPlaceholder = getSelectedMachineStatusPlaceholder(machineStatus);
 
   if (!deviceId) {
     showMessage(machineMsg, 'Device ID is required.');
     return;
   }
 
-  // Pre-flight: block if already portal-registered.
-  if (getLocalRegisteredIds().has(deviceId)) {
+  // Pre-flight: block only if the IoT Agent record already carries portal metadata.
+  if (getPortalRegisteredDeviceIds().has(deviceId)) {
     showMessage(machineMsg, 'This device is already registered — it appears in Machines in Use.');
     return;
   }
@@ -1012,7 +1061,7 @@ async function handleMachineSubmit(event) {
     friendlyName,
     model,
     description,
-    status,
+    statusPlaceholder,
     serviceKey: targetService.key,
     serviceApikey: targetService.apikey,
     serviceResource: targetService.resource,
@@ -1091,13 +1140,14 @@ async function handleMachineSubmit(event) {
     }
     resetAttributeInputs();
     if (machineStatus) {
-      machineStatus.value = status || 'Online';
+      machineStatus.value = String(statusPlaceholder.code);
+      updateMachineStatusPreview('machineStatusPreview', machineStatus.value);
     }
     showMessage(machineMsg, `Machine ${deviceId} registered successfully.`, false);
 
     await fetchMachines();
     renderMachines();
-    handleServiceGroupPickerChange(); // refresh picker to remove the just-registered device
+    handleServiceGroupPickerChange({ refreshDevices: false }); // refresh picker to remove the just-registered device
   } catch (error) {
     console.error('Error creating machine:', error);
     showMessage(machineMsg, `Error creating machine: ${error.message}`);
@@ -1187,34 +1237,18 @@ function updateMachineStatusesFromStore() {
       getDeviceActivity(machine.entityName, { now }) ||
       getDeviceActivity(machine.deviceId, { now });
 
-    const staticStatus = machine.status ? String(machine.status).trim() : '';
-    const staticStatusLower = staticStatus.toLowerCase();
-
     if (activity) {
       machine.lastSeen = activity.lastUpdateIso || '';
       machine.lastSeenAttribute = activity.lastUpdateAttribute || '';
-      machine.dynamicStatus = activity.status;
       machine.activityAgeMs = activity.ageMs ?? null;
       machine.orionAttributeCount = typeof activity.attributeCount === 'number' ? activity.attributeCount : null;
-
-      if (activity.offline) {
-        machine.currentStatus = 'Offline';
-      } else if (staticStatus && staticStatusLower !== 'offline') {
-        machine.currentStatus = staticStatus;
-      } else {
-        machine.currentStatus = activity.status;
-      }
+      machine.machineStatus = activity.machineStatus || DEFAULT_MACHINE_STATUS;
     } else {
       machine.lastSeen = '';
       machine.lastSeenAttribute = '';
-      machine.dynamicStatus = '';
       machine.activityAgeMs = null;
-      machine.currentStatus = staticStatus || '';
       machine.orionAttributeCount = null;
-    }
-
-    if (!machine.currentStatus) {
-      machine.currentStatus = activity && !activity.offline ? 'Online' : 'Unknown';
+      machine.machineStatus = DEFAULT_MACHINE_STATUS;
     }
   });
 }
@@ -1312,7 +1346,7 @@ function renderMachines() {
             <div>${escapeHtml(serviceLabel)}</div>
             ${serviceDetails.join('')}
           </td>
-          <td class="px-5 py-3 text-sm">${renderStatus(machine.currentStatus || machine.status || 'Unknown')}</td>
+          <td class="px-5 py-3 text-sm">${renderMachineStatusBadge(machine.machineStatus || DEFAULT_MACHINE_STATUS)}</td>
           <td class="px-5 py-3 text-sm text-gray-700">${details.join('')}</td>
           <td class="px-5 py-3 text-sm text-right whitespace-nowrap">
             <button
@@ -1400,12 +1434,11 @@ export function getMachineLabel(entityId) {
 
 /**
  * When the service group select changes, populate the collapsible device
- * picker with ALL IoT Agent devices that belong to that group.
- * Already-registered devices are shown with a badge and cannot be selected.
- * Unregistered devices can be clicked to fill the Device ID field.
+ * picker with unregistered IoT Agent devices that belong to that group.
  */
-function handleServiceGroupPickerChange() {
+async function handleServiceGroupPickerChange(options = {}) {
   if (!deviceIdPickerWrapper || !deviceIdPickerList) return;
+  const shouldRefreshDevices = options?.refreshDevices !== false;
 
   const selectedKey = machineServiceGroup?.value || '';
   if (!selectedKey) {
@@ -1419,37 +1452,48 @@ function handleServiceGroupPickerChange() {
     return;
   }
 
+  const refreshToken = ++devicePickerRefreshToken;
+  if (shouldRefreshDevices) {
+    deviceIdPickerList.innerHTML =
+      '<li class="px-3 py-2 text-xs text-gray-500">Loading devices...</li>';
+    deviceIdPickerWrapper.classList.remove('hidden');
+
+    await fetchMachines();
+    renderMachines();
+
+    if (refreshToken !== devicePickerRefreshToken) return;
+    if ((machineServiceGroup?.value || '') !== selectedKey) return;
+  }
+
   // Include IoT Agent devices whose apikey+resource match this group.
   // If a device's resource is unknown (empty), include it anyway — it may
   // belong to this group but the IoT Agent didn't return enough info to confirm.
-  const candidates = allIotDevices.filter((d) => {
-    if (targetGroup.apikey && d.apikey && d.apikey !== targetGroup.apikey) return false;
+  const registeredDeviceIds = getPortalRegisteredDeviceIds();
+  const candidatesById = new Map();
+  for (const d of allIotDevices) {
+    if (!d.deviceId || registeredDeviceIds.has(d.deviceId)) continue;
+    if (targetGroup.apikey && d.apikey && d.apikey !== targetGroup.apikey) continue;
     if (d.resource) {
       const resourceMatch =
         normalizeResourcePath(d.resource) === normalizeResourcePath(targetGroup.resource);
-      if (!resourceMatch) return false;
+      if (!resourceMatch) continue;
     }
-    return true;
-  });
+    const existing = candidatesById.get(d.deviceId);
+    if (!existing || isPreferredMachineEntry(d, existing)) {
+      candidatesById.set(d.deviceId, d);
+    }
+  }
+
+  const candidates = Array.from(candidatesById.values())
+    .sort((a, b) => a.deviceId.localeCompare(b.deviceId));
 
   if (!candidates.length) {
     deviceIdPickerWrapper.classList.add('hidden');
     return;
   }
 
-  const localRegisteredIds = getLocalRegisteredIds();
   deviceIdPickerList.innerHTML = candidates
-    .map((d) => {
-      if (localRegisteredIds.has(d.deviceId)) {
-        return `
-      <li>
-        <span class="flex items-center justify-between px-3 py-1.5 text-sm text-gray-400">
-          ${escapeHtml(d.deviceId)}
-          <span class="ml-2 text-xs font-semibold text-green-600 bg-green-50 rounded px-1.5 py-0.5">Registered</span>
-        </span>
-      </li>`;
-      }
-      return `
+    .map((d) => `
       <li>
         <button
           type="button"
@@ -1457,8 +1501,7 @@ function handleServiceGroupPickerChange() {
           data-action="pick-device-id"
           data-device-id="${escapeHtml(d.deviceId)}"
         >${escapeHtml(d.deviceId)}</button>
-      </li>`;
-    })
+      </li>`)
     .join('');
 
   deviceIdPickerWrapper.classList.remove('hidden');
@@ -1584,7 +1627,7 @@ function buildDefaultStaticAttributes({
   friendlyName,
   model,
   description,
-  status,
+  statusPlaceholder = DEFAULT_MACHINE_STATUS,
   serviceKey = '',
   serviceApikey = '',
   serviceResource = '',
@@ -1602,8 +1645,9 @@ function buildDefaultStaticAttributes({
   if (description) {
     attrs.push({ name: 'notes', type: 'Text', value: description });
   }
-  if (status) {
-    attrs.push({ name: 'operationalStatus', type: 'Text', value: status });
+  if (statusPlaceholder) {
+    attrs.push({ name: 'machineStatusPlaceholderCode', type: 'Integer', value: statusPlaceholder.code });
+    attrs.push({ name: 'machineStatusPlaceholderName', type: 'Text', value: statusPlaceholder.name });
   }
   if (serviceKey) {
     attrs.push({ name: 'serviceGroupKey', type: 'Text', value: serviceKey });
@@ -1766,6 +1810,8 @@ function normalizeDevice(entry = {}) {
     model: staticMap.get('model') || '',
     assetId,
     notes: staticMap.get('notes') || '',
+    statusPlaceholderCode: staticMap.get('machineStatusPlaceholderCode') || '',
+    statusPlaceholderName: staticMap.get('machineStatusPlaceholderName') || '',
     status: staticMap.get('operationalStatus') || '',
     raw: entry
   };
@@ -2304,20 +2350,6 @@ function hideMessage(node) {
   node.classList.add('hidden');
 }
 
-/**
- * Render status badge for machines.
- */
-function renderStatus(status) {
-  const label = status || 'Unknown';
-  let style = 'bg-gray-100 text-gray-600';
-  if (label.toLowerCase() === 'online') style = 'bg-green-100 text-green-700';
-  if (label.toLowerCase() === 'maintenance') style = 'bg-amber-100 text-amber-700';
-  if (label.toLowerCase() === 'offline') style = 'bg-red-100 text-red-700';
-  return `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${style}">${escapeHtml(
-    label
-  )}</span>`;
-}
-
 function formatLastSeen(isoString) {
   if (!isoString) return '';
   const date = new Date(isoString);
@@ -2589,7 +2621,11 @@ function populateEditMachineModal(machine) {
   setVal('editMachineDescription', machine.notes);
 
   const statusEl = document.getElementById('editMachineStatus');
-  if (statusEl) statusEl.value = machine.status || 'Online';
+  if (statusEl) {
+    const placeholder = getMachineStatusByCode(machine.statusPlaceholderCode || DEFAULT_MACHINE_STATUS.code);
+    populateMachineStatusSelect(statusEl, placeholder.code);
+    updateMachineStatusPreview('editMachineStatusPreview', statusEl.value);
+  }
 
   populateEditMachineServiceGroupOptions(machine.serviceKey);
 
@@ -2843,7 +2879,7 @@ async function handleEditMachineSubmit(event) {
   const friendlyName = (document.getElementById('editMachineName')?.value || '').trim();
   const model = (document.getElementById('editMachineModel')?.value || '').trim();
   const description = (document.getElementById('editMachineDescription')?.value || '').trim();
-  const status = document.getElementById('editMachineStatus')?.value || '';
+  const statusPlaceholder = getSelectedMachineStatusPlaceholder(document.getElementById('editMachineStatus'));
   const selectedServiceKey = document.getElementById('editMachineServiceGroup')?.value || '';
 
   if (!deviceId) { showMessage(msgEl, 'Device ID is missing.'); return; }
@@ -2868,7 +2904,7 @@ async function handleEditMachineSubmit(event) {
     friendlyName,
     model,
     description,
-    status,
+    statusPlaceholder,
     serviceKey: targetService.key,
     serviceApikey: targetService.apikey,
     serviceResource: targetService.resource,

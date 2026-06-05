@@ -1,8 +1,8 @@
-# Phase III - Predictive Maintenance v0.1
+# Phase III - Predictive Maintenance v0.2
 
 **This phase starts the predictive maintenance roadmap by adding the historical telemetry foundation required for later machine learning.**
 
-Version `0.1` does **not** train or run ML predictions yet. Its purpose is to persist machine telemetry over time using the FIWARE-recommended `QuantumLeap + CrateDB` architecture, expose that data safely through the existing security chain, and add a first portal view for querying trends.
+Version `0.2` does **not** train or run ML predictions yet. Its purpose is to persist machine telemetry over time using the FIWARE-recommended `QuantumLeap + CrateDB` architecture, expose that data safely through the existing security chain, add a first portal view for querying trends, and improve machine inventory/status handling.
 
 The existing Phase II security model remains the baseline: browser traffic goes through the portal, PEP Proxy, API Gateway, Keyrock, and AuthzForce policies. CrateDB and QuantumLeap are intentionally kept internal-only.
 
@@ -12,7 +12,7 @@ The existing Phase II security model remains the baseline: browser traffic goes 
 
 **Phase**: `Phase III - Predictive Maintenance`
 
-**Version**: `0.1`
+**Version**: `0.2`
 
 **Author**: Tiago Lemos
 
@@ -20,7 +20,7 @@ The existing Phase II security model remains the baseline: browser traffic goes 
 
 ---
 
-## Scope of v0.1
+## Scope of v0.2
 
 ### Implemented
 
@@ -37,6 +37,10 @@ The existing Phase II security model remains the baseline: browser traffic goes 
 - Historical chart and table for registered machine telemetry
 - Auto-refresh toggle for historical queries every 5 seconds
 - Keyrock/AuthzForce permissions for historical data routes
+- Portal-only machine registration control for **Machines in Use**
+- Service-group-aware IoT Agent device picker in the **Add Machine** form
+- Dynamic `machine_status` code badges in **Machines in Use** and **Orion Logs**
+- IEC 60073-aligned machine status color palette
 
 ### Not Implemented Yet
 
@@ -48,6 +52,106 @@ The existing Phase II security model remains the baseline: browser traffic goes 
 - Dashboards for predictive maintenance
 
 This phase deliberately separates **data collection** from **prediction**. Predictive maintenance models need enough clean historical data first; this version creates that data layer.
+
+---
+
+## New in v0.2
+
+### Machine registration control - portal-only "Machines in Use"
+
+Previously, IoT Agent devices could be surfaced in **Machines in Use** even when they were only auto-provisioned by telemetry traffic and had not been explicitly registered through the portal.
+
+What changed:
+
+- **Machines in Use** now shows only IoT Agent devices that carry portal registration metadata.
+- Auto-provisioned IoT Agent devices remain available for onboarding, but are not treated as registered machines.
+- Stale browser `localStorage` entries no longer decide whether a machine is registered.
+- Registering a machine writes portal metadata to the IoT Agent static attributes.
+- Deleting or updating a machine refreshes the inventory and picker state.
+
+The relevant registration marker is stored in static attributes such as:
+
+```text
+serviceGroupKey
+serviceGroupResource
+serviceGroupApikey
+serviceGroupFiware
+serviceGroupSubservice
+```
+
+---
+
+### Device picker in "Add Machine" form
+
+When the user selects a service group in the **Add Machine** form, the portal immediately refreshes the IoT Agent device list and shows a collapsible **Available device IDs from IoT Agent** picker.
+
+What was added:
+
+- Devices already present in the IoT Agent for the selected service group appear as clickable device IDs.
+- Clicking a device ID fills the **Device ID** field automatically.
+- Already registered devices are filtered out of the picker instead of being shown again.
+- Duplicate IoT Agent records for the same `device_id` are collapsed before rendering.
+- The picker refreshes after service group selection, registration, deletion, and service group changes.
+
+This avoids the previous manual page-refresh requirement after selecting an existing service group.
+
+---
+
+### Dynamic `machine_status` codes and colors
+
+The runtime machine status shown in **Machines in Use** and **Orion Logs** is now driven by live Orion telemetry, not by the form status tag.
+
+What changed:
+
+- The portal reads live `machine_status` / `machineStatus` attributes from Orion entities.
+- The status badge shows both the status name and numeric code, for example:
+
+```text
+Printing (203)
+Critical error (14)
+Unknown (999)
+```
+
+- Missing, malformed, or unmapped status values fall back to `Unknown (999)`.
+- The add/edit **Status tag** is now only a placeholder/default metadata field.
+- Placeholder metadata is stored separately as:
+
+```text
+machineStatusPlaceholderCode
+machineStatusPlaceholderName
+```
+
+- Status colors are shared by Machines in Use, Orion Logs, and the form preview through `web/digital-twin-portal/js/machine-status.js`.
+
+The v0.2 status color palette follows the IEC 60073-style proposal used by the project:
+
+| Status | Code | RGB |
+|--------|------|-----|
+| Unknown | `999` | `RGB(158,158,158)` |
+| Uninitialized | `7` | `RGB(189,189,189)` |
+| Standby | `12` | `RGB(245,245,245)` |
+| Spinning | `303` | `RGB(56,142,60)` |
+| Shutdown | `13` | `RGB(117,117,117)` |
+| Sequence interrupted | `8` | `RGB(255,193,7)` |
+| Reserved | `300` | `RGB(189,189,189)` |
+| Ready to spin | `302` | `RGB(46,125,50)` |
+| Ready to print | `202` | `RGB(46,125,50)` |
+| Printing error | `206` | `RGB(211,47,47)` |
+| Printing | `203` | `RGB(56,142,60)` |
+| Preparing to spin | `301` | `RGB(255,160,0)` |
+| Preparing to print | `201` | `RGB(255,160,0)` |
+| Paused | `9` | `RGB(255,193,7)` |
+| Manual | `3` | `RGB(25,118,210)` |
+| Maintenance | `11` | `RGB(25,118,210)` |
+| Invalid | `0` | `RGB(211,47,47)` |
+| Initializing error | `15` | `RGB(211,47,47)` |
+| Initializing | `6` | `RGB(66,165,245)` |
+| Idle | `2` | `RGB(129,199,132)` |
+| Emergency | `1` | `RGB(198,40,40)` |
+| Diagnostic | `5` | `RGB(30,136,229)` |
+| Critical error | `14` | `RGB(183,28,28)` |
+| Cleaning error | `205` | `RGB(211,47,47)` |
+| Cleaning | `200` | `RGB(102,187,106)` |
 
 ---
 
@@ -312,7 +416,10 @@ The UI shows the registered friendly attribute name, but queries the stored obje
 | `web/digital-twin-portal/js/main.js` | Initializes historical data module |
 | `web/digital-twin-portal/js/auth.js` | Refreshes historical state after login/session changes |
 | `web/digital-twin-portal/js/ui-helpers.js` | Adds Historical Data tab behavior |
-| `web/digital-twin-portal/js/inventory.js` | Exposes registered machine metadata for the historical module |
+| `web/digital-twin-portal/js/inventory.js` | Exposes registered machine metadata, controls Machines in Use, refreshes the IoT Agent device picker, and renders dynamic machine status badges |
+| `web/digital-twin-portal/js/device-activity.js` | Extracts live Orion activity and `machine_status` metadata for portal views |
+| `web/digital-twin-portal/js/orion-logs.js` | Renders Orion Logs device headers with live machine status badges |
+| `web/digital-twin-portal/js/machine-status.js` | Defines machine status code mappings, RGB colors, dropdown options, parsing, and shared badge rendering |
 
 ---
 
