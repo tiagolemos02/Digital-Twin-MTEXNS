@@ -1,8 +1,8 @@
-# Phase III - Predictive Maintenance v0.2.1
+# Phase III - Predictive Maintenance v0.3
 
 **This phase starts the predictive maintenance roadmap by adding the historical telemetry foundation required for later machine learning.**
 
-Version `0.2.1` does **not** train or run ML predictions yet. Its purpose is to persist machine telemetry over time using the FIWARE-recommended `QuantumLeap + CrateDB` architecture, expose that data safely through the existing security chain, add a first portal view for querying trends, and improve machine inventory/status handling.
+Version `0.3` does **not** train or run ML predictions yet. Its purpose is to make the telemetry ingestion path reliable after machine registration, preserve historical continuity between Orion and QuantumLeap, persist machine telemetry over time using the FIWARE-recommended `QuantumLeap + CrateDB` architecture, expose that data safely through the existing security chain, and improve machine inventory/status handling.
 
 The existing Phase II security model remains the baseline: browser traffic goes through the portal, PEP Proxy, API Gateway, Keyrock, and AuthzForce policies. CrateDB and QuantumLeap are intentionally kept internal-only.
 
@@ -12,11 +12,35 @@ The existing Phase II security model remains the baseline: browser traffic goes 
 
 **Phase**: `Phase III - Predictive Maintenance`
 
-**Version**: `0.2.1`
+**Version**: `0.3`
 
 **Author**: Tiago Lemos
 
 **Licence**: MIT
+
+---
+
+## Scope of v0.3
+
+### Implemented
+
+- Reliable MQTT-to-IoT-Agent-to-Orion updates after portal machine registration
+- Safe `portalTelemetryAttributes` storage using `b64url:` encoded metadata
+- Portal metadata decoding for encoded telemetry allowlists
+- Canonical NGSI-LD-style entity IDs using `urn:ngsi-ld:<entity_type>:<unique_id>`
+- Portal registration and edits enforce URN entity names even when MQTT created a non-URN auto-provisioned record first
+- IoT Agent healthcheck fix for images that do not include `curl`
+
+### Not Implemented Yet
+
+- ML model training
+- Anomaly detection
+- Remaining useful life prediction
+- Prediction tables in CrateDB
+- Writing prediction results back to Orion
+- Dashboards for predictive maintenance
+
+This version focuses on ingestion correctness. Historical data and future ML work depend on Orion receiving each telemetry update successfully and QuantumLeap writing those updates against the same stable entity IDs.
 
 ---
 
@@ -55,6 +79,116 @@ This phase deliberately separates **data collection** from **prediction**. Predi
 
 ---
 
+## New in v0.3
+
+### ✅ Machine telemetry registration reliability fix
+
+This maintenance release fixes a blocking telemetry issue found after registering machines through the portal.
+
+Previously, registered machines appeared correctly in the portal and historical data could show older samples, but new MQTT values could stop reaching Orion. The IoT Agent was receiving MQTT measurements, then Orion rejected each upsert with:
+
+```text
+400 BadRequest: Invalid characters in attribute value
+```
+
+The rejected value was the `portalTelemetryAttributes` static attribute. In v0.2.1, the portal stored the selected telemetry allowlist as raw JSON text inside an Orion/IoT Agent `Text` attribute. That raw JSON contains quote characters, which Orion rejects in this path.
+
+What changed:
+
+- `portalTelemetryAttributes` is now stored as safe `b64url:` encoded JSON text.
+- The portal can still read older raw JSON metadata for backward compatibility.
+- New and edited machines write encoded metadata automatically.
+- The fix is implemented in the registration/edit code path, so the IoT Agent sends Orion-safe metadata by default.
+
+Example stored value:
+
+```text
+portalTelemetryAttributes=b64url:W3sibmFtZSI6...
+```
+
+Why this was done:
+
+- Keep the Viewer/Admin telemetry allowlist introduced in v0.2.1.
+- Avoid Orion `Invalid characters in attribute value` errors.
+- Preserve the registration metadata without exposing arbitrary telemetry attributes.
+- Keep MQTT ingestion, Orion current state, and QuantumLeap history working together.
+
+---
+
+### ✅ Canonical URN-style `Machine` entity IDs
+
+The portal now treats the Orion entity ID as a technical identifier, separate from the human machine name shown in the UI.
+
+The canonical entity ID format is:
+
+```text
+urn:ngsi-ld:<entity_type>:<unique_id>
+```
+
+For machines this means:
+
+```text
+urn:ngsi-ld:Machine:00-00-1B-C4-58-GB
+```
+
+The machine name entered in the web portal is stored only as friendly metadata, for example:
+
+```text
+friendlyName=Machine B
+```
+
+It does not decide or replace the Orion entity ID.
+
+What changed:
+
+- New machine registration always builds `entity_name` as `urn:ngsi-ld:<entity_type>:<sanitized_device_id>`.
+- Editing an existing machine rewrites the IoT Agent device to the same canonical URN format.
+- If MQTT traffic auto-provisioned an incorrect non-URN entity such as `Machine:<device_id>`, portal registration corrects the IoT Agent record to the URN format.
+- Duplicate IoT Agent records for the same device are merged for portal display, preferring portal-registered URN records.
+
+Why this was done:
+
+- Align entity IDs with the project convention: `scheme:prefix:entity type:Unique ID`.
+- Keep the display name and the technical entity identifier separate.
+- Avoid duplicate machine rows caused by one physical device having multiple entity IDs.
+- Keep Orion and QuantumLeap using the same canonical entity ID for new telemetry after registration.
+
+---
+
+### ✅ IoT Agent healthcheck fix
+
+The `fiware-custom-agent` container could appear unhealthy even when the IoT Agent API was running. The configured healthcheck used `curl`, but the custom IoT Agent image does not include `curl`.
+
+What changed:
+
+- The healthcheck now uses Node's built-in HTTP client against:
+
+```text
+http://127.0.0.1:4041/iot/about
+```
+
+Why this was done:
+
+- Make Docker health reflect the actual IoT Agent service state.
+- Avoid confusing a missing utility inside the image with a broken telemetry service.
+
+---
+
+### ✅ Code-level registry consistency fix
+
+Version 0.3 fixes registry consistency directly in the application code.
+
+What changed:
+
+- Registration builds canonical URN entity names before sending `POST /iot/devices` or `PUT /iot/devices/{device_id}`.
+- Edits reuse the same canonical URN builder.
+- Duplicate IoT Agent records are collapsed in the portal by device/service identity, with portal-registered URN records preferred for display.
+- `portalTelemetryAttributes` is encoded before it reaches the IoT Agent, so new records are created correctly from the start.
+
+This makes the fix part of normal machine registration and editing behavior.
+
+---
+
 ## New in v0.2.1
 
 ### ✅ Viewer Orion Logs and Historical Data filtering fix
@@ -79,8 +213,6 @@ portalTelemetryAttributes
 
 - Admin inventory loading also refreshes a browser-local metadata cache so an Admin logout followed by a Viewer login in the same browser preserves the correct allowlist.
 - Keyrock/AuthzForce permissions were not changed; Viewer still uses the same Lisbon working-hours ABAC rules for Orion and QuantumLeap reads.
-
-For machines registered before v0.2.1, open the machine in Admin and save it once to persist `portalTelemetryAttributes` into the IoT Agent/Orion metadata for durable cross-browser Viewer filtering.
 
 ---
 
@@ -428,7 +560,7 @@ The UI shows the registered friendly attribute name, but queries the stored obje
 
 | File | Purpose |
 |------|---------|
-| `docker_compose/docker-compose.yml` | Adds `crate-db`, `quantumleap`, `historical-subscription`, and `historical-schema-sync` |
+| `docker_compose/docker-compose.yml` | Adds `crate-db`, `quantumleap`, `historical-subscription`, `historical-schema-sync`, and the Node-based IoT Agent healthcheck |
 | `docker_compose/.env.example` | Adds image/config variables for CrateDB, QuantumLeap, and schema sync |
 | `docker_compose/bootstrap/historical-subscription.sh` | Creates/updates the Orion subscription for QuantumLeap |
 | `docker_compose/bootstrap/historical-schema-sync.sh` | Adds missing CrateDB columns for new Machine attributes |
@@ -445,7 +577,7 @@ The UI shows the registered friendly attribute name, but queries the stored obje
 | `web/digital-twin-portal/js/main.js` | Initializes historical data module |
 | `web/digital-twin-portal/js/auth.js` | Refreshes historical state after login/session changes |
 | `web/digital-twin-portal/js/ui-helpers.js` | Adds Historical Data tab behavior |
-| `web/digital-twin-portal/js/inventory.js` | Exposes registered machine metadata, controls Machines in Use, refreshes the IoT Agent device picker, and renders dynamic machine status badges |
+| `web/digital-twin-portal/js/inventory.js` | Exposes registered machine metadata, controls Machines in Use, enforces canonical `urn:ngsi-ld:Machine:<unique_id>` entity IDs, encodes portal telemetry metadata, refreshes the IoT Agent device picker, and renders dynamic machine status badges |
 | `web/digital-twin-portal/js/device-activity.js` | Extracts live Orion activity and `machine_status` metadata for portal views |
 | `web/digital-twin-portal/js/orion-logs.js` | Renders Orion Logs device headers with live machine status badges |
 | `web/digital-twin-portal/js/machine-status.js` | Defines machine status code mappings, RGB colors, dropdown options, parsing, and shared badge rendering |

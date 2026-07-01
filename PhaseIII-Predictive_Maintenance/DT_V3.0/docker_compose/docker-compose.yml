@@ -397,7 +397,11 @@ services:
       - IOTA_HTTP_CORS_ALLOWED_METHODS=GET,POST,OPTIONS
       - IOTA_HTTP_CORS_ALLOWED_HEADERS=Fiware-Service,Fiware-ServicePath,Authorization,Content-Type
     healthcheck:
-      test: curl --fail -s http://iot-agent:4041/iot/about || exit 1
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"require('http').get('http://127.0.0.1:4041/iot/about', (res) => process.exit(res.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))\""
+        ]
       interval: 5s
     networks:
       - fiware_net

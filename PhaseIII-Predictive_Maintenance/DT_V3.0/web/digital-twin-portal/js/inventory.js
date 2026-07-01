@@ -90,6 +90,7 @@ let devicePickerRefreshToken = 0;
 const LOCAL_REGISTERED_KEY = 'dt_portal_registered_devices';
 const LOCAL_REGISTERED_METADATA_KEY = 'dt_portal_registered_machine_metadata';
 const PORTAL_TELEMETRY_ATTRS_STATIC_NAME = 'portalTelemetryAttributes';
+const PORTAL_TELEMETRY_ATTRS_ENCODING_PREFIX = 'b64url:';
 
 function getLocalRegisteredIds() {
   try {
@@ -1097,6 +1098,7 @@ async function handleMachineSubmit(event) {
 
   // Use the entity type defined by the selected service group
   const entityType = targetService?.entityType || 'Thing';
+  const entityName = buildEntityName(deviceId, entityType);
 
   const attributes = collectTelemetryAttributes();
   if (attributes === null) {
@@ -1125,7 +1127,7 @@ async function handleMachineSubmit(event) {
     devices: [
       {
         device_id: deviceId,
-        entity_name: buildEntityName(deviceId, entityType),
+        entity_name: entityName,
         entity_type: entityType,
         transport: IOT_AGENT_TRANSPORT,
         protocol: IOT_AGENT_PROTOCOL,
@@ -1154,7 +1156,7 @@ async function handleMachineSubmit(event) {
       // Device already provisioned in IoT Agent (e.g. auto-provisioned via MQTT).
       // Use PUT to attach portal metadata without re-creating it.
       const putPayload = {
-        entity_name: buildEntityName(deviceId, entityType),
+        entity_name: entityName,
         entity_type: entityType,
         transport: IOT_AGENT_TRANSPORT,
         protocol: IOT_AGENT_PROTOCOL,
@@ -1693,12 +1695,41 @@ function normalizeTelemetryMetadata(attributes = []) {
     .filter((attr) => attr.name || attr.object_id);
 }
 
-function buildPortalTelemetryStaticAttribute(attributes = []) {
+function encodeUtf8Base64Url(value) {
+  const text = String(value ?? '');
+  let binary = '';
+  if (typeof TextEncoder !== 'undefined') {
+    const bytes = new TextEncoder().encode(text);
+    bytes.forEach((byte) => {
+      binary += String.fromCharCode(byte);
+    });
+  } else {
+    binary = unescape(encodeURIComponent(text));
+  }
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function decodeUtf8Base64Url(value) {
+  const normalized = String(value || '').replace(/-/g, '+').replace(/_/g, '/');
+  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+  const binary = atob(padded);
+  if (typeof TextDecoder !== 'undefined') {
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
+  }
+  return decodeURIComponent(escape(binary));
+}
+
+function encodePortalTelemetryMetadata(attributes = []) {
   const telemetry = normalizeTelemetryMetadata(attributes);
+  return `${PORTAL_TELEMETRY_ATTRS_ENCODING_PREFIX}${encodeUtf8Base64Url(JSON.stringify(telemetry))}`;
+}
+
+function buildPortalTelemetryStaticAttribute(attributes = []) {
   return {
     name: PORTAL_TELEMETRY_ATTRS_STATIC_NAME,
     type: 'Text',
-    value: JSON.stringify(telemetry)
+    value: encodePortalTelemetryMetadata(attributes)
   };
 }
 
@@ -1924,7 +1955,10 @@ function parsePortalTelemetryMetadata(raw) {
   if (Array.isArray(raw)) return normalizeTelemetryMetadata(raw);
   if (typeof raw !== 'string') return [];
   try {
-    const parsed = JSON.parse(raw);
+    const encoded = raw.startsWith(PORTAL_TELEMETRY_ATTRS_ENCODING_PREFIX)
+      ? decodeUtf8Base64Url(raw.slice(PORTAL_TELEMETRY_ATTRS_ENCODING_PREFIX.length))
+      : raw;
+    const parsed = JSON.parse(encoded);
     return normalizeTelemetryMetadata(parsed);
   } catch {
     return [];
@@ -2014,13 +2048,11 @@ function normalizeOrionEntityAsMachine(entity = {}) {
   };
 }
 
-/**
- * When the IoT Agent holds two records for the same deviceId (auto-provisioned + portal PUT),
- * prefer the portal PUT entry: it has a urn:ngsi-ld: entityName and more static attributes.
- */
 function isPreferredMachineEntry(candidate, current) {
   const candidateUrn = candidate.entityName?.startsWith('urn:ngsi-ld:') ?? false;
   const currentUrn   = current.entityName?.startsWith('urn:ngsi-ld:')  ?? false;
+  if (candidate.isPortalRegistered && !current.isPortalRegistered) return true;
+  if (!candidate.isPortalRegistered && current.isPortalRegistered) return false;
   if (candidateUrn && !currentUrn) return true;
   if (!candidateUrn && currentUrn) return false;
   return (candidate.staticAttributes?.length ?? 0) > (current.staticAttributes?.length ?? 0);
@@ -2033,11 +2065,12 @@ function mergeDuplicateDevices(devices = []) {
   devices.forEach((device) => {
     if (!device || typeof device !== 'object') return;
     const deviceId = asNonEmptyString(device.deviceId);
-    const entityName = asNonEmptyString(device.entityName);
     const serviceKey = asNonEmptyString(device.serviceKey);
     const dedupeKey =
-      deviceId || entityName
-        ? [deviceId, entityName, serviceKey].join('|')
+      deviceId
+        ? [deviceId, serviceKey].join('|')
+        : asNonEmptyString(device.entityName)
+          ? [asNonEmptyString(device.entityName), serviceKey].join('|')
         : `__device_${fallbackIndex++}`;
 
     if (!deduped.has(dedupeKey)) {
@@ -2054,6 +2087,17 @@ function mergeDuplicateDevices(devices = []) {
     const existing = deduped.get(dedupeKey);
     existing.attributes = mergeAttributeList(existing.attributes, device.attributes);
     existing.staticAttributes = mergeAttributeList(existing.staticAttributes, device.staticAttributes);
+    existing.isPortalRegistered = existing.isPortalRegistered || device.isPortalRegistered;
+
+    if (
+      asNonEmptyString(device.entityName) &&
+      (
+        !asNonEmptyString(existing.entityName) ||
+        (!existing.entityName.startsWith('urn:ngsi-ld:') && device.entityName.startsWith('urn:ngsi-ld:'))
+      )
+    ) {
+      existing.entityName = device.entityName;
+    }
 
     existing.apikey = asNonEmptyString(existing.apikey) || asNonEmptyString(device.apikey) || '';
 
@@ -3093,6 +3137,7 @@ async function handleEditMachineSubmit(event) {
   }
 
   const entityType = targetService?.entityType || 'Thing';
+  const entityName = buildEntityName(deviceId, entityType);
 
   const attributes = collectEditTelemetryAttributes();
   if (attributes === null) return;
@@ -3116,7 +3161,7 @@ async function handleEditMachineSubmit(event) {
   const staticAttributes = [...defaultStaticAttributes, ...customStaticAttributes];
 
   const payload = {
-    entity_name: buildEntityName(deviceId, entityType),
+    entity_name: entityName,
     entity_type: entityType,
     transport: IOT_AGENT_TRANSPORT,
     protocol: IOT_AGENT_PROTOCOL,
