@@ -10,7 +10,12 @@ import {
     logsTableBody, logsMessage, deviceFilter, attributeFilter
 } from './dom-elements.js';
 import { updateActivityFromDevices, getDeviceActivity } from './device-activity.js';
-import { getRegisteredMachineEntityIds, getRegisteredMachineAttributeNames, getMachineLabel } from './inventory.js';
+import {
+    getRegisteredMachineEntityIds,
+    getRegisteredMachineAttributeNames,
+    getMachineLabel,
+    syncRegisteredMachinesFromOrionEntities
+} from './inventory.js';
 import { DEFAULT_MACHINE_STATUS, renderMachineStatusBadge } from './machine-status.js';
 
 // In-memory storage for logs filtering
@@ -86,6 +91,7 @@ export async function listLogs() {
         }
 
         const rawDevices = await resp.json();
+        syncRegisteredMachinesFromOrionEntities(rawDevices);
 
         // Only show entities that were explicitly registered via the portal.
         const registeredIds = getRegisteredMachineEntityIds();

@@ -70,6 +70,7 @@ import {
 
 let serviceGroups = [];
 let machines = [];
+let orionFallbackMachines = [];
 let allIotDevices = [];
 let loadingServiceGroups = false;
 let loadingMachines = false;
@@ -87,6 +88,8 @@ let editStaticInputMode = 'manual';
 let devicePickerRefreshToken = 0;
 
 const LOCAL_REGISTERED_KEY = 'dt_portal_registered_devices';
+const LOCAL_REGISTERED_METADATA_KEY = 'dt_portal_registered_machine_metadata';
+const PORTAL_TELEMETRY_ATTRS_STATIC_NAME = 'portalTelemetryAttributes';
 
 function getLocalRegisteredIds() {
   try {
@@ -111,6 +114,42 @@ function removeLocalRegisteredId(deviceId) {
   localStorage.setItem(LOCAL_REGISTERED_KEY, JSON.stringify([...ids]));
 }
 
+function getLocalRegisteredMachineMetadata() {
+  try {
+    const raw = localStorage.getItem(LOCAL_REGISTERED_METADATA_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function setLocalRegisteredMachineMetadata(nextMachines = []) {
+  try {
+    const payload = nextMachines
+      .filter((machine) => machine?.entityName)
+      .map((machine) => ({
+        deviceId: machine.deviceId || '',
+        entityName: machine.entityName || '',
+        entityType: machine.entityType || ENTITY_TYPE,
+        friendlyName: machine.friendlyName || '',
+        model: machine.model || '',
+        notes: machine.notes || '',
+        attributes: normalizeTelemetryMetadata(machine.attributes)
+      }));
+    localStorage.setItem(LOCAL_REGISTERED_METADATA_KEY, JSON.stringify(payload));
+  } catch {
+    // Local metadata is only a viewer fallback; ignore storage failures.
+  }
+}
+
+function removeLocalRegisteredMachineMetadata(deviceId) {
+  if (!deviceId) return;
+  const next = getLocalRegisteredMachineMetadata()
+    .filter((machine) => machine.deviceId !== deviceId);
+  localStorage.setItem(LOCAL_REGISTERED_METADATA_KEY, JSON.stringify(next));
+}
+
 function getPortalRegisteredDeviceIds(devices = allIotDevices) {
   return new Set(
     devices
@@ -119,11 +158,16 @@ function getPortalRegisteredDeviceIds(devices = allIotDevices) {
   );
 }
 
+function getVisibleMachines() {
+  return machines.length ? machines : orionFallbackMachines;
+}
+
 const SYSTEM_STATIC_ATTR_NAMES = new Set([
   'friendlyName', 'model', 'notes', 'operationalStatus',
   'machineStatusPlaceholderCode', 'machineStatusPlaceholderName',
   'serviceGroupKey', 'serviceGroupResource', 'serviceGroupApikey',
-  'serviceGroupFiware', 'serviceGroupSubservice'
+  'serviceGroupFiware', 'serviceGroupSubservice',
+  PORTAL_TELEMETRY_ATTRS_STATIC_NAME
 ]);
 const MANUAL_GRADIENT = ['#1E3A8A', '#4C51BF'];
 const AUTOMATIC_GRADIENT = ['#10B981', '#34D399'];
@@ -725,6 +769,7 @@ async function fetchMachines() {
       }
     }
     machines = Array.from(machineMap.values());
+    setLocalRegisteredMachineMetadata(machines);
     await syncMachineActivityData();
     updateMachineStatusesFromStore();
     hideMessage(machineMsg);
@@ -987,6 +1032,7 @@ async function handleDeleteMachine(button, machine) {
     }
 
     removeLocalRegisteredId(machine.deviceId);
+    removeLocalRegisteredMachineMetadata(machine.deviceId);
     showMessage(machineMsg, `Machine ${machine.deviceId} deleted successfully.`, false);
 
     await fetchMachines();
@@ -1066,7 +1112,8 @@ async function handleMachineSubmit(event) {
     serviceApikey: targetService.apikey,
     serviceResource: targetService.resource,
     serviceFiware: targetService.fiwareService,
-    serviceSubservice: targetService.subservice
+    serviceSubservice: targetService.subservice,
+    telemetryAttributes: attributes
   });
   const customStaticAttributes = collectStaticAttributesInput();
   if (customStaticAttributes === null) {
@@ -1380,14 +1427,14 @@ function renderMachines() {
  * Used by orion-logs.js to filter Orion entities.
  */
 export function getRegisteredMachineEntityIds() {
-  return new Set(machines.map((m) => m.entityName).filter(Boolean));
+  return new Set(getVisibleMachines().map((m) => m.entityName).filter(Boolean));
 }
 
 /**
  * Return a copy of the portal-registered machines for read-only UI modules.
  */
 export function getRegisteredMachines() {
-  return machines.map((machine) => ({
+  return getVisibleMachines().map((machine) => ({
     ...machine,
     attributes: Array.isArray(machine.attributes)
       ? machine.attributes.map((attr) => ({ ...attr }))
@@ -1404,7 +1451,7 @@ export function getRegisteredMachines() {
  * Returns null if the entity is not in the registered machines list.
  */
 export function getRegisteredMachineAttributeNames(entityId) {
-  const machine = machines.find((m) => m.entityName === entityId);
+  const machine = getVisibleMachines().find((m) => m.entityName === entityId);
   if (!machine) return null;
   const allowed = new Set();
   for (const attr of (machine.attributes || [])) {
@@ -1424,12 +1471,28 @@ export function getRegisteredMachineAttributeNames(entityId) {
  * Return a display label for an Orion entity: "Friendly Name (deviceId)" or just "deviceId".
  */
 export function getMachineLabel(entityId) {
-  const machine = machines.find((m) => m.entityName === entityId);
+  const machine = getVisibleMachines().find((m) => m.entityName === entityId);
   if (!machine) return entityId;
   const name = machine.friendlyName || '';
   const deviceId = machine.deviceId || '';
   if (name && deviceId) return `${name} (${deviceId})`;
   return name || deviceId || entityId;
+}
+
+/**
+ * Seed read-only machine metadata from Orion entities.
+ * Viewer users can read Orion during working hours but cannot read IoT Agent
+ * inventory, so logs/history need this fallback metadata to avoid filtering all
+ * visible Orion data away.
+ */
+export function syncRegisteredMachinesFromOrionEntities(entities = []) {
+  if (!Array.isArray(entities)) return;
+
+  const next = entities
+    .map(normalizeOrionEntityAsMachine)
+    .filter(Boolean);
+
+  orionFallbackMachines = next.length ? mergeDuplicateDevices(next) : [];
 }
 
 /**
@@ -1620,6 +1683,25 @@ function collectStaticAttributesInput() {
   }
 }
 
+function normalizeTelemetryMetadata(attributes = []) {
+  return (Array.isArray(attributes) ? attributes : [])
+    .map((attr) => ({
+      name: asNonEmptyString(attr?.name),
+      object_id: asNonEmptyString(attr?.object_id || attr?.objectId),
+      type: asNonEmptyString(attr?.type) || 'Text'
+    }))
+    .filter((attr) => attr.name || attr.object_id);
+}
+
+function buildPortalTelemetryStaticAttribute(attributes = []) {
+  const telemetry = normalizeTelemetryMetadata(attributes);
+  return {
+    name: PORTAL_TELEMETRY_ATTRS_STATIC_NAME,
+    type: 'Text',
+    value: JSON.stringify(telemetry)
+  };
+}
+
 /**
  * Create static attributes payload from form fields.
  */
@@ -1632,7 +1714,8 @@ function buildDefaultStaticAttributes({
   serviceApikey = '',
   serviceResource = '',
   serviceFiware = '',
-  serviceSubservice = ''
+  serviceSubservice = '',
+  telemetryAttributes = []
 }) {
   const attrs = [];
 
@@ -1664,6 +1747,7 @@ function buildDefaultStaticAttributes({
   if (serviceSubservice) {
     attrs.push({ name: 'serviceGroupSubservice', type: 'Text', value: serviceSubservice });
   }
+  attrs.push(buildPortalTelemetryStaticAttribute(telemetryAttributes));
 
   return attrs;
 }
@@ -1814,6 +1898,119 @@ function normalizeDevice(entry = {}) {
     statusPlaceholderName: staticMap.get('machineStatusPlaceholderName') || '',
     status: staticMap.get('operationalStatus') || '',
     raw: entry
+  };
+}
+
+function readOrionAttributeValue(raw) {
+  if (raw && typeof raw === 'object' && Object.prototype.hasOwnProperty.call(raw, 'value')) {
+    return raw.value;
+  }
+  return raw;
+}
+
+function readOrionAttributeType(raw) {
+  if (raw && typeof raw === 'object' && typeof raw.type === 'string') {
+    return raw.type;
+  }
+  const value = readOrionAttributeValue(raw);
+  if (typeof value === 'number') return Number.isInteger(value) ? 'Integer' : 'Number';
+  if (typeof value === 'boolean') return 'Boolean';
+  if (value && typeof value === 'object') return 'StructuredValue';
+  return 'Text';
+}
+
+function parsePortalTelemetryMetadata(raw) {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return normalizeTelemetryMetadata(raw);
+  if (typeof raw !== 'string') return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return normalizeTelemetryMetadata(parsed);
+  } catch {
+    return [];
+  }
+}
+
+function findLocalRegisteredMachineMetadata(entityName, deviceId) {
+  return getLocalRegisteredMachineMetadata().find((machine) =>
+    (entityName && machine.entityName === entityName) ||
+    (deviceId && machine.deviceId === deviceId)
+  ) || null;
+}
+
+function deriveDeviceIdFromEntityId(entityId = '', entityType = ENTITY_TYPE) {
+  const prefix = `urn:ngsi-ld:${entityType}:`;
+  if (entityId.startsWith(prefix)) {
+    return entityId.slice(prefix.length);
+  }
+  const parts = entityId.split(':');
+  return parts.length > 1 ? parts[parts.length - 1] : entityId;
+}
+
+function normalizeOrionEntityAsMachine(entity = {}) {
+  if (!entity || typeof entity !== 'object') return null;
+  const entityName = asNonEmptyString(entity.id);
+  if (!entityName) return null;
+
+  const entityType = asNonEmptyString(entity.type) || ENTITY_TYPE;
+  if (entityType && entityType !== ENTITY_TYPE) return null;
+
+  const staticAttributes = [];
+
+  Object.entries(entity).forEach(([name, raw]) => {
+    if (!name || name === 'id' || name === 'type' || name.toLowerCase() === 'timeinstant') return;
+
+    const attr = {
+      name,
+      type: readOrionAttributeType(raw),
+      value: readOrionAttributeValue(raw)
+    };
+
+    if (SYSTEM_STATIC_ATTR_NAMES.has(name)) {
+      staticAttributes.push(attr);
+    }
+  });
+
+  const staticMap = toAttributeMap(staticAttributes);
+  const deviceId = asNonEmptyString(readOrionAttributeValue(entity.device_id))
+    || asNonEmptyString(readOrionAttributeValue(entity.deviceId))
+    || deriveDeviceIdFromEntityId(entityName, entityType);
+  const localMetadata = findLocalRegisteredMachineMetadata(entityName, deviceId);
+  const serviceKey = asNonEmptyString(staticMap.get('serviceGroupKey'));
+
+  if (!serviceKey && !localMetadata) {
+    return null;
+  }
+
+  const staticTelemetry = parsePortalTelemetryMetadata(
+    staticMap.get(PORTAL_TELEMETRY_ATTRS_STATIC_NAME)
+  );
+  const localTelemetry = normalizeTelemetryMetadata(localMetadata?.attributes);
+  const attributes = staticTelemetry.length ? staticTelemetry : localTelemetry;
+
+  return {
+    deviceId,
+    entityName,
+    entityType,
+    transport: '',
+    protocol: '',
+    attributes,
+    staticAttributes,
+    apikey: asNonEmptyString(staticMap.get('serviceGroupApikey')),
+    resource: asNonEmptyString(staticMap.get('serviceGroupResource')),
+    cbroker: '',
+    fiwareService: asNonEmptyString(staticMap.get('serviceGroupFiware')) || FIWARE_SERVICE,
+    subservice: asNonEmptyString(staticMap.get('serviceGroupSubservice')) || FIWARE_SERVICEPATH || '/',
+    serviceKey,
+    isPortalRegistered: true,
+    friendlyName: asNonEmptyString(staticMap.get('friendlyName')) || asNonEmptyString(localMetadata?.friendlyName),
+    model: asNonEmptyString(staticMap.get('model')) || asNonEmptyString(localMetadata?.model),
+    assetId: '',
+    notes: asNonEmptyString(staticMap.get('notes')) || asNonEmptyString(localMetadata?.notes),
+    statusPlaceholderCode: asNonEmptyString(staticMap.get('machineStatusPlaceholderCode')),
+    statusPlaceholderName: asNonEmptyString(staticMap.get('machineStatusPlaceholderName')),
+    status: asNonEmptyString(staticMap.get('operationalStatus')),
+    raw: entity
   };
 }
 
@@ -2909,7 +3106,8 @@ async function handleEditMachineSubmit(event) {
     serviceApikey: targetService.apikey,
     serviceResource: targetService.resource,
     serviceFiware: targetService.fiwareService,
-    serviceSubservice: targetService.subservice
+    serviceSubservice: targetService.subservice,
+    telemetryAttributes: attributes
   });
 
   const customStaticAttributes = collectEditStaticAttributesInput();

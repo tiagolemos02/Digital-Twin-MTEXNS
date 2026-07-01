@@ -1,19 +1,18 @@
-# Phase III - Predictive Maintenance v0.2
-=======
+# Phase III - Predictive Maintenance v0.2.1
 
 **This phase starts the predictive maintenance roadmap by adding the historical telemetry foundation required for later machine learning.**
 
-Version `0.2` does **not** train or run ML predictions yet. Its purpose is to persist machine telemetry over time using the FIWARE-recommended `QuantumLeap + CrateDB` architecture, expose that data safely through the existing security chain, add a first portal view for querying trends, and improve machine inventory/status handling.
+Version `0.2.1` does **not** train or run ML predictions yet. Its purpose is to persist machine telemetry over time using the FIWARE-recommended `QuantumLeap + CrateDB` architecture, expose that data safely through the existing security chain, add a first portal view for querying trends, and improve machine inventory/status handling.
 
 The existing Phase II security model remains the baseline: browser traffic goes through the portal, PEP Proxy, API Gateway, Keyrock, and AuthzForce policies. CrateDB and QuantumLeap are intentionally kept internal-only.
 
 ## Project Identification
 
-**Repository**: `tiagolemos02/PhaseIII-PM/DT_V3.0`
+**Repository**: `tiagolemos02/PhaseIII-PM/DT_V3.0.1`
 
 **Phase**: `Phase III - Predictive Maintenance`
 
-**Version**: `0.2`
+**Version**: `0.2.1`
 
 **Author**: Tiago Lemos
 
@@ -53,6 +52,35 @@ The existing Phase II security model remains the baseline: browser traffic goes 
 - Dashboards for predictive maintenance
 
 This phase deliberately separates **data collection** from **prediction**. Predictive maintenance models need enough clean historical data first; this version creates that data layer.
+
+---
+
+## New in v0.2.1
+
+### ✅ Viewer Orion Logs and Historical Data filtering fix
+
+This maintenance update tightens the Viewer read path for **Orion Logs** and **Historical Data**.
+
+Previously, Viewer sessions could fall back to raw Orion `Machine` entities when they could not read IoT Agent inventory. That made the tabs accessible, but it could expose:
+
+- auto-provisioned Orion entities that were communicating but had not been registered by Admin
+- all Orion telemetry attributes for a registered machine instead of only the topics selected by Admin
+
+What changed:
+
+- Viewer fallback machine discovery now accepts only machines with portal registration metadata or cached Admin inventory metadata.
+- Auto-provisioned Orion-only entities are not treated as registered machines.
+- Registered machine topic visibility is restricted to the Admin-selected telemetry attributes.
+- New and edited machines store the allowed telemetry list in the static attribute:
+
+```text
+portalTelemetryAttributes
+```
+
+- Admin inventory loading also refreshes a browser-local metadata cache so an Admin logout followed by a Viewer login in the same browser preserves the correct allowlist.
+- Keyrock/AuthzForce permissions were not changed; Viewer still uses the same Lisbon working-hours ABAC rules for Orion and QuantumLeap reads.
+
+For machines registered before v0.2.1, open the machine in Admin and save it once to persist `portalTelemetryAttributes` into the IoT Agent/Orion metadata for durable cross-browser Viewer filtering.
 
 ---
 
@@ -458,7 +486,7 @@ sudo sysctl -p
 Open PowerShell in:
 
 ```powershell
-cd DT_V3.0/docker_compose
+cd DT_V2.3/docker_compose
 ```
 
 Generate local secrets and `.env` values:
@@ -478,7 +506,7 @@ Start the stack:
 docker compose up -d --build
 ```
 
-Open the portal (localhost or ip):
+Open the portal:
 
 ```text
 http://localhost:8001
