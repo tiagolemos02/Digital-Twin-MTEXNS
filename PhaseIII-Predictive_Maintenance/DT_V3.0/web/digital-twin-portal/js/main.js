@@ -9,6 +9,8 @@ import {
     emailInput,
     passwordInput,
     btnLogin,
+    portalSidebar,
+    sidebarToggle,
     userInfoBtn,
     userDropdown,
     btnLogout,
@@ -42,6 +44,7 @@ import { initHistoricalData, refreshHistoricalData } from './historical-data.js'
 
 async function initializeApp() {
     setupTabNavigation();
+    setupSidebarNavigation();
     setupPasswordToggleHandlers();
     setupUserMenuHandlers();
     setupFilterHandlers();
@@ -82,6 +85,37 @@ function setupTabNavigation() {
     };
     digitalTwinTab.onclick = () => switchTab('digitalTwin');
     inventoryTab.onclick = () => switchTab('inventory');
+}
+
+function setupSidebarNavigation() {
+    const setSidebarState = (state) => {
+        if (!portalSidebar || !sidebarToggle) return;
+        portalSidebar.dataset.sidebarState = state;
+        sidebarToggle.setAttribute('aria-expanded', String(state === 'expanded'));
+        sidebarToggle.setAttribute('aria-label', state === 'expanded' ? 'Collapse sidebar' : 'Expand sidebar');
+        sidebarToggle.querySelector('i')?.classList.toggle('fa-angles-left', state === 'expanded');
+        sidebarToggle.querySelector('i')?.classList.toggle('fa-angles-right', state === 'collapsed');
+    };
+
+    if (window.matchMedia('(max-width: 920px)').matches) {
+        setSidebarState('collapsed');
+    }
+
+    sidebarToggle?.addEventListener('click', () => {
+        const collapsed = portalSidebar?.dataset.sidebarState === 'collapsed';
+        const nextState = collapsed ? 'expanded' : 'collapsed';
+        setSidebarState(nextState);
+    });
+
+    document.querySelectorAll('[data-sidebar-group-toggle]').forEach((toggle) => {
+        toggle.addEventListener('click', () => {
+            const group = toggle.getAttribute('data-sidebar-group-toggle');
+            const panel = document.querySelector(`[data-sidebar-group-panel="${group}"]`);
+            const expanded = toggle.getAttribute('aria-expanded') !== 'false';
+            toggle.setAttribute('aria-expanded', String(!expanded));
+            panel?.classList.toggle('is-collapsed', expanded);
+        });
+    });
 }
 
 function setupPasswordToggleHandlers() {

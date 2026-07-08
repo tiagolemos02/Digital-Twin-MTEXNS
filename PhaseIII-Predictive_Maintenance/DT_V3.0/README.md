@@ -1,8 +1,8 @@
-# Phase III - Predictive Maintenance v0.3
+# Phase III - Predictive Maintenance v0.4
 
-**This phase starts the predictive maintenance roadmap by adding the historical telemetry foundation required for later machine learning.**
+**This phase starts the predictive maintenance roadmap by adding the historical telemetry foundation required for later machine learning and tightening the secured operator portal around that foundation.**
 
-Version `0.3` does **not** train or run ML predictions yet. Its purpose is to make the telemetry ingestion path reliable after machine registration, preserve historical continuity between Orion and QuantumLeap, persist machine telemetry over time using the FIWARE-recommended `QuantumLeap + CrateDB` architecture, expose that data safely through the existing security chain, and improve machine inventory/status handling.
+Version `0.4` does **not** train or run ML predictions yet. Its purpose is to make the secured portal easier to operate and closer to the MTEX NS product context: users can understand their access context, navigate through a collapsible workflow sidebar, register machines through a guided payload-driven flow, recover from denied/error states without going straight to logs, assign color-coded roles, and work in a quieter operations-console visual system.
 
 The existing Phase II security model remains the baseline: browser traffic goes through the portal, PEP Proxy, API Gateway, Keyrock, and AuthzForce policies. CrateDB and QuantumLeap are intentionally kept internal-only.
 
@@ -12,11 +12,52 @@ The existing Phase II security model remains the baseline: browser traffic goes 
 
 **Phase**: `Phase III - Predictive Maintenance`
 
-**Version**: `0.3`
+**Version**: `0.4`
 
 **Author**: Tiago Lemos
 
 **Licence**: MIT
+
+---
+
+## Scope of v0.4
+
+### Implemented
+
+- MTEX NS-branded portal shell using the company red, charcoal, gray, and neutral palette in a restrained operational style
+- Improved typography using separate display and interface font families for headings, navigation, labels, and dense operational text
+- Post-login **Access profile** visibility for signed-in user, effective role/access, FIWARE service/subservice, allowed modules, blocked modules, and the capability check behind each tab
+- Collapsible left sidebar navigation grouped into **Operations**, **Telemetry**, and **Administration**
+- Icon-only collapsed sidebar mode for wider working space
+- User identity and logout controls moved to the bottom of the sidebar
+- Machine registration split into an inline stepper:
+  - service group
+  - machine identity
+  - telemetry mapping
+  - generated IoT Agent / NGSI payload preview
+  - register
+- Generated registration preview showing the target IoT Agent request and JSON body before submission
+- Role color tags with an explicit color-selection workflow, custom hex input, preview, and colored assignment badges
+- Recovery-oriented error and denied states using cause + check + next action messaging for Keyrock, PEP/AuthzForce, IoT Agent, Orion, and QuantumLeap paths
+- Inline denied-state placeholders instead of disruptive browser alerts
+- Quieter operational visual system:
+  - flatter panels
+  - reduced shadows
+  - no hover-lift on static cards
+  - restrained icon badges
+  - non-gradient mode toggles
+  - denser tables and toolbars
+
+### Not Implemented Yet
+
+- ML model training
+- Anomaly detection
+- Remaining useful life prediction
+- Prediction tables in CrateDB
+- Writing prediction results back to Orion
+- Dashboards for predictive maintenance
+
+This version focuses on portal operability. The system now organizes operator workflows more clearly, exposes recovery context where access or telemetry calls fail, and improves visual fit for MTEX NS while keeping predictive-maintenance modeling as future work.
 
 ---
 
@@ -76,6 +117,199 @@ This version focuses on ingestion correctness. Historical data and future ML wor
 - Dashboards for predictive maintenance
 
 This phase deliberately separates **data collection** from **prediction**. Predictive maintenance models need enough clean historical data first; this version creates that data layer.
+
+---
+
+## New in v0.4
+
+### ✅ Access profile and permission visibility
+
+After sign-in, the portal exposes the user's access context as part of the secured operating surface.
+
+It covers:
+
+- signed-in user
+- effective role/access label
+- FIWARE service
+- FIWARE service path
+- allowed modules
+- blocked modules
+- live capability checks behind each tab
+
+Why this was done:
+
+- Admin and Viewer users need to distinguish role restrictions from service-group issues, PEP/PDP policy failures, missing backend sessions, and unavailable service capability.
+- The portal should explain the current access envelope before a user hits a denied tab or failed query.
+- Security state should be visible in the UI instead of being hidden behind generic "no access" messages.
+
+Complementary v0.4 refinements:
+
+- Denied tabs now keep capability context at the point of failure.
+- Recovery messages now describe the likely cause, checked endpoint, and next action.
+- The sidebar user block keeps the signed-in identity and logout action available without crowding the main workflow area.
+
+---
+
+### ✅ Collapsible workflow sidebar
+
+Authenticated navigation now lives in a left sidebar instead of a wide row of peer tabs.
+
+What changed:
+
+- The sidebar expands to show group labels and tab names.
+- The sidebar collapses to an icon-only rail when the operator needs more workspace.
+- User identity and logout controls live at the bottom of the sidebar.
+- Navigation is grouped into **Operations**, **Telemetry**, and **Administration**.
+- Access and denied-state context remains available where it affects the user, especially in denied tabs and recovery messages.
+
+Why this was done:
+
+- Operators need a stable app shell that keeps machine workflows visible without taking over the page.
+- Admin and Viewer users still need clear access feedback, while the main navigation should remain compact enough for repeated operator workflows.
+
+---
+
+### ✅ Workflow-based navigation
+
+The authenticated portal navigation is now grouped by operator task family instead of implementation module.
+
+Navigation groups:
+
+| Group | Tabs |
+|------|------|
+| Operations | Machines & Services, Current State, Historical Data |
+| Telemetry | 3D Digital Twin |
+| Administration | User Management, Roles & Permissions, Audit Logs, Security Settings |
+
+What changed:
+
+- These groups are presented inside the collapsible sidebar.
+- **Machines & Services**, **Current State**, and **Historical Data** now sit together because they form the main operational telemetry workflow.
+- The previous **Orion Logs** user-facing label was clarified as **Current State** while still using Orion as the data source.
+- Administration tasks are separated from operator telemetry tasks.
+
+Why this was done:
+
+- Operators should not need to infer workflow order from backend implementation names.
+- Machine registration, live state, and historical telemetry are adjacent because users naturally move between them.
+
+---
+
+### ✅ MTEX NS visual system and typography
+
+The portal now uses a subtler MTEX NS visual direction instead of a generic SaaS dashboard look.
+
+What changed:
+
+- Brand text was updated to **MTEX NS Digital Twin Portal**.
+- The interface uses MTEX NS red as a restrained accent for selected navigation, primary actions, links, and chart emphasis.
+- Charcoal, gray, white, and neutral surfaces form the operational base palette.
+- Headings and brand/navigation moments use a display font, while tables, forms, and controls use a denser interface font.
+- Decorative gradients and broad accent blocks were reduced.
+
+Why this was done:
+
+- The portal should feel connected to MTEX NS without turning every panel red.
+- Dense telemetry and security screens need typography that separates headings, labels, data, and actions clearly.
+
+---
+
+### ✅ Role color tags
+
+Roles can now carry explicit color tags that are reused across role management and user assignments.
+
+What changed:
+
+- Creating a role requires selecting a color tag.
+- The role form opens a **Select color tag** palette with smaller swatches, custom hex input, and live preview.
+- If no color is selected, the form warns the Admin before creating the role.
+- The role table shows the role ID, colored role tag, and delete action only.
+- Assignment badges in **Assign Roles To Users / Delete Users** use the colors configured in role management.
+
+Why this was done:
+
+- Role identity is easier to scan when assignments carry the same color language as the role-management table.
+- The color workflow is explicit, so roles are not created with accidental or invisible tag colors.
+
+---
+
+### ✅ Guided machine registration stepper
+
+The **Add Machine** form is now split into a guided inline stepper.
+
+Stepper flow:
+
+1. Service group
+2. Machine identity
+3. Telemetry mapping
+4. Review payload
+5. Register
+
+What changed:
+
+- Service group selection is separated from machine identity fields.
+- Telemetry and static attribute mapping are separated from identity and service setup.
+- The portal generates an IoT Agent / NGSI request preview before submission.
+- The preview shows whether the portal will create or update the IoT Agent device and displays the JSON request body.
+- Form validation can now support preview updates without interrupting the user with premature errors.
+
+Why this was done:
+
+- Registration previously mixed service group, Context Broker URL, IoT Agent device ID, registration mode, telemetry attributes, static attributes, status, and notes in one broad surface.
+- The new flow lets an Admin verify the generated IoT payload before it changes IoT Agent state.
+
+---
+
+### ✅ Recovery-oriented errors and denied states
+
+Portal errors now use a shared message pattern:
+
+```text
+<System> could not <action> (HTTP <status>). Check: <endpoint>. Detail: <backend detail>. Next: <recovery action>.
+```
+
+Examples:
+
+```text
+PEP/Orion could not load current machine state (HTTP 403). Check: GET /bff/fiware/v2/entities?type=Machine&options=keyValues. Next: PEP/AuthzForce denied this request. Ask an admin to assign the required role or permission.
+```
+
+```text
+IoT Agent could not register the machine. Check: POST /iot/devices. Next: The portal could not reach the backend. Verify the stack is running and your session is still valid, then try again.
+```
+
+What changed:
+
+- Generic messages such as "network error" and "no access" were replaced on the main portal paths.
+- Keyrock user/role management, IoT Agent service/device requests, Orion current-state reads, QuantumLeap historical reads, and authentication errors now return cause + check + next action copy.
+- Denied tabs now use persistent inline placeholders instead of disruptive browser alerts.
+
+Why this was done:
+
+- Security and telemetry failures are predictable in this stack.
+- Users need to know whether to sign in again, switch service group, ask for a role/permission, check PEP/PDP policy, or inspect a backend container.
+
+---
+
+### ✅ Quieter operations-console visual system
+
+The portal visual system was reduced to feel more like an engineering console and less like a decorative SaaS dashboard.
+
+What changed:
+
+- Static cards no longer lift on hover.
+- Operational panels are flatter and use borders instead of broad soft shadows.
+- Shadows are reserved mainly for overlays and dropdowns.
+- Repeated decorative icon badges were toned down.
+- Registration mode toggles no longer use gradients.
+- Tables use denser spacing and smaller type for scanning.
+- Accent color is reserved for selected navigation, primary actions, links, chart emphasis, and meaningful state.
+- Reduced-motion support was added for non-essential transitions.
+
+Why this was done:
+
+- The interface should feel precise, calm, and trustworthy under security and telemetry failure.
+- Visual energy now follows task importance instead of decorating every panel equally.
 
 ---
 
@@ -571,16 +805,21 @@ The UI shows the registered friendly attribute name, but queries the stored obje
 
 | File | Purpose |
 |------|---------|
-| `web/digital-twin-portal/index.html` | Adds Historical Data tab and section |
-| `web/digital-twin-portal/js/historical-data.js` | Implements historical query, chart, table, and auto-refresh |
-| `web/digital-twin-portal/js/dom-elements.js` | Adds DOM exports for historical UI |
-| `web/digital-twin-portal/js/main.js` | Initializes historical data module |
-| `web/digital-twin-portal/js/auth.js` | Refreshes historical state after login/session changes |
-| `web/digital-twin-portal/js/ui-helpers.js` | Adds Historical Data tab behavior |
-| `web/digital-twin-portal/js/inventory.js` | Exposes registered machine metadata, controls Machines in Use, enforces canonical `urn:ngsi-ld:Machine:<unique_id>` entity IDs, encodes portal telemetry metadata, refreshes the IoT Agent device picker, and renders dynamic machine status badges |
+| `web/digital-twin-portal/index.html` | Adds Historical Data tab and section; adds Access profile visibility, the MTEX NS sidebar shell, workflow-grouped navigation, guided machine registration stepper, IoT/NGSI payload preview, and role color picker UI |
+| `web/digital-twin-portal/js/historical-data.js` | Implements historical query, chart, table, auto-refresh, and MTEX NS chart accent styling |
+| `web/digital-twin-portal/js/dom-elements.js` | Adds DOM exports for historical UI, access/profile context, sidebar controls, registration payload preview, and role color picker controls |
+| `web/digital-twin-portal/js/main.js` | Initializes historical data and controls sidebar collapse/group behavior |
+| `web/digital-twin-portal/js/auth.js` | Refreshes historical state after login/session changes and applies authenticated access/profile and tab access rules |
+| `web/digital-twin-portal/js/ui-helpers.js` | Adds Historical Data tab behavior, workflow tab access handling, access/profile helpers, and inline denied placeholders |
+| `web/digital-twin-portal/js/error-messages.js` | Centralizes recovery-oriented HTTP, network, and denied-state message formatting |
+| `web/digital-twin-portal/js/inventory.js` | Exposes registered machine metadata, controls Machines in Use, enforces canonical `urn:ngsi-ld:Machine:<unique_id>` entity IDs, encodes portal telemetry metadata, refreshes the IoT Agent device picker, renders dynamic machine status badges, drives the guided registration stepper, and generates IoT Agent payload previews |
 | `web/digital-twin-portal/js/device-activity.js` | Extracts live Orion activity and `machine_status` metadata for portal views |
-| `web/digital-twin-portal/js/orion-logs.js` | Renders Orion Logs device headers with live machine status badges |
+| `web/digital-twin-portal/js/orion-logs.js` | Renders Current State device headers with live machine status badges and recovery-oriented Orion/PEP errors |
+| `web/digital-twin-portal/js/users.js` | Uses recovery-oriented Keyrock user-management messages |
+| `web/digital-twin-portal/js/roles-permissions.js` | Uses recovery-oriented Keyrock role/permission-management messages and manages role color metadata, color validation, palette selection, custom hex preview, and colored assignment badges |
 | `web/digital-twin-portal/js/machine-status.js` | Defines machine status code mappings, RGB colors, dropdown options, parsing, and shared badge rendering |
+| `web/digital-twin-portal/css/styles.css` | Adds MTEX NS color/typography tokens, sidebar layout, role color picker styling, flatter operational panels, reduced shadows, denser tables, and reduced-motion behavior |
+| `web/digital-twin-portal/css/custom.css` | Replaces decorative gradient mode toggles with quieter segmented-control styling |
 
 ---
 

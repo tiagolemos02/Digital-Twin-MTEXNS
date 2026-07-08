@@ -39,6 +39,9 @@ import {
   machineMsg,
   machinesTableBody,
   machineCount,
+  machinePayloadSummary,
+  machinePayloadPreview,
+  machinePayloadRefresh,
   deviceIdPickerWrapper,
   deviceIdPickerToggle,
   deviceIdPickerPanel,
@@ -67,6 +70,7 @@ import {
   renderMachineStatusBadge,
   renderMachineStatusOptions
 } from './machine-status.js';
+import { formatResponseError, formatThrownError } from './error-messages.js';
 
 let serviceGroups = [];
 let machines = [];
@@ -194,6 +198,51 @@ const NORMALIZED_ALLOWED_CBROKER_URLS = new Set(
 
 const ALLOWED_CBROKER_DISPLAY = FIWARE_CONTEXT_BROKER_URLS.join(', ');
 
+const IOT_CONTEXTS = {
+  loadServices: {
+    system: 'IoT Agent',
+    action: 'load service groups',
+    endpoint: 'GET /bff/fiware/iot/services',
+    recovery: 'Required permission: IoT services read. Ask an admin to grant it for this FIWARE service.'
+  },
+  loadDevices: {
+    system: 'IoT Agent',
+    action: 'load machine inventory',
+    endpoint: 'GET /bff/fiware/iot/devices',
+    recovery: 'Required permission: IoT devices read. Ask an admin to grant it for this FIWARE service.'
+  },
+  createService: {
+    system: 'IoT Agent',
+    action: 'register the service group',
+    endpoint: 'POST /bff/fiware/iot/services',
+    recovery: 'Check the Context Broker URL, resource path, entity type, and IoT services write permission.'
+  },
+  deleteService: {
+    system: 'IoT Agent',
+    action: 'delete the service group',
+    endpoint: 'DELETE /bff/fiware/iot/services',
+    recovery: 'Confirm the service group still exists and that your role can delete IoT services.'
+  },
+  registerMachine: {
+    system: 'IoT Agent',
+    action: 'register the machine',
+    endpoint: 'POST or PUT /bff/fiware/iot/devices',
+    recovery: 'Check the payload preview, selected service group, and IoT devices write permission.'
+  },
+  updateMachine: {
+    system: 'IoT Agent',
+    action: 'update the machine',
+    endpoint: 'PUT /bff/fiware/iot/devices/{deviceId}',
+    recovery: 'Check the edit payload, selected service group, and IoT devices write permission.'
+  },
+  deleteMachine: {
+    system: 'IoT Agent',
+    action: 'delete the machine',
+    endpoint: 'DELETE /bff/fiware/iot/devices/{deviceId}',
+    recovery: 'Confirm the device still exists and that your role can delete IoT devices.'
+  }
+};
+
 function getBrokerLabel(value) {
   if (!value) return '-';
   try {
@@ -224,6 +273,7 @@ export function initInventory() {
     setMode: (mode) => {
       updateAttributeInputMode(mode);
       hideMessage(machineMsg);
+      updateMachinePayloadPreview();
     },
     preview: previewTelemetryProgress
   });
@@ -233,6 +283,7 @@ export function initInventory() {
     setMode: (mode) => {
       updateStaticAttributeInputMode(mode);
       hideMessage(machineMsg);
+      updateMachinePayloadPreview();
     },
     preview: previewStaticProgress
   });
@@ -241,6 +292,7 @@ export function initInventory() {
   attributeAutoList?.addEventListener('click', handleTelemetryAttributeListClick);
   staticAttributeAutoList?.addEventListener('click', handleStaticAttributeListClick);
   setupMachineStatusControls();
+  setupMachinePayloadPreview();
 
   machineServiceGroup?.addEventListener('change', handleServiceGroupPickerChange);
   deviceIdPickerToggle?.addEventListener('click', () => {
@@ -251,13 +303,17 @@ export function initInventory() {
   });
   deviceIdPickerList?.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-action="pick-device-id"]');
-    if (btn && machineDeviceId) machineDeviceId.value = btn.getAttribute('data-device-id') || '';
+    if (btn && machineDeviceId) {
+      machineDeviceId.value = btn.getAttribute('data-device-id') || '';
+      updateMachinePayloadPreview();
+    }
   });
 
   applyServiceDefaults();
   initializeAttributeInputs();
   startMachineStatusTicker();
   initEditModals();
+  updateMachinePayloadPreview();
   void loadInventory();
 }
 
@@ -285,6 +341,7 @@ async function loadInventory() {
   renderMachines();
   // Refresh picker in case a service group was already selected when machines loaded.
   await handleServiceGroupPickerChange({ refreshDevices: false });
+  updateMachinePayloadPreview();
 }
 
 function startMachineStatusTicker() {
@@ -586,6 +643,7 @@ function handleAddTelemetryAttribute(event) {
   telemetryAttributeEntries.push({ object_id: objectId, name, type });
   renderTelemetryAttributeList();
   clearTelemetryAttributeFields();
+  updateMachinePayloadPreview();
 }
 
 function handleTelemetryAttributeListClick(event) {
@@ -599,6 +657,7 @@ function handleTelemetryAttributeListClick(event) {
 
   telemetryAttributeEntries.splice(index, 1);
   renderTelemetryAttributeList();
+  updateMachinePayloadPreview();
 }
 
 function renderTelemetryAttributeList() {
@@ -652,6 +711,7 @@ function handleAddStaticAttribute(event) {
   staticAttributeEntries.push({ name, type, value });
   renderStaticAttributeList();
   clearStaticAttributeFields();
+  updateMachinePayloadPreview();
 }
 
 function handleStaticAttributeListClick(event) {
@@ -665,6 +725,7 @@ function handleStaticAttributeListClick(event) {
 
   staticAttributeEntries.splice(index, 1);
   renderStaticAttributeList();
+  updateMachinePayloadPreview();
 }
 
 function renderStaticAttributeList() {
@@ -722,7 +783,7 @@ async function fetchServiceGroups() {
     const resp = await apiFetch('/iot/services', { method: 'GET', headers: buildHeaders() });
 
     if (!resp.ok) {
-      throw new Error(await extractError(resp));
+      throw new Error(await extractError(resp, IOT_CONTEXTS.loadServices));
     }
 
     const payload = await resp.json().catch(() => ({}));
@@ -733,7 +794,7 @@ async function fetchServiceGroups() {
     console.error('Error loading service groups:', error);
     serviceGroups = [];
     renderServiceGroupError(error);
-    showMessage(serviceGroupMsg, `Error loading service groups: ${error.message}`);
+    showMessage(serviceGroupMsg, formatThrownError(error, IOT_CONTEXTS.loadServices));
   } finally {
     loadingServiceGroups = false;
   }
@@ -752,7 +813,7 @@ async function fetchMachines() {
     const resp = await apiFetch('/iot/devices', { method: 'GET', headers: buildHeaders() });
 
     if (!resp.ok) {
-      throw new Error(await extractError(resp));
+      throw new Error(await extractError(resp, IOT_CONTEXTS.loadDevices));
     }
 
     const payload = await resp.json().catch(() => ({}));
@@ -775,12 +836,12 @@ async function fetchMachines() {
     updateMachineStatusesFromStore();
     hideMessage(machineMsg);
   } catch (error) {
-    console.error('Error loading machines:', error);
+    console.error('IoT device listing request failed:', error);
     machines = [];
     if (machinesTableBody) {
       renderMachinesError(error);
     }
-    showMessage(machineMsg, `Error loading machines: ${error.message}`);
+    showMessage(machineMsg, formatThrownError(error, IOT_CONTEXTS.loadDevices));
   } finally {
     loadingMachines = false;
   }
@@ -873,7 +934,7 @@ async function handleServiceGroupSubmit(event) {
     });
 
     if (!resp.ok) {
-      throw new Error(await extractError(resp));
+      throw new Error(await extractError(resp, IOT_CONTEXTS.createService));
     }
 
     serviceGroupForm?.reset();
@@ -885,8 +946,8 @@ async function handleServiceGroupSubmit(event) {
     renderServiceGroups();
     refreshServiceGroupOptions(serviceKey);
   } catch (error) {
-    console.error('Error creating service group:', error);
-    showMessage(serviceGroupMsg, `Error creating service group: ${error.message}`);
+    console.error('IoT service group creation request failed:', error);
+    showMessage(serviceGroupMsg, formatThrownError(error, IOT_CONTEXTS.createService));
   } finally {
     if (submitBtn) {
       submitBtn.textContent = originalText || 'Save Service Group';
@@ -948,7 +1009,7 @@ async function handleDeleteServiceGroup(button, group) {
     const resp = await apiFetch(url, { method: 'DELETE', headers });
 
     if (!resp.ok) {
-      throw new Error(await extractError(resp));
+      throw new Error(await extractError(resp, IOT_CONTEXTS.deleteService));
     }
 
     showMessage(serviceGroupMsg, `${getServiceLabel(group)} deleted successfully.`, false);
@@ -961,9 +1022,8 @@ async function handleDeleteServiceGroup(button, group) {
     renderMachines();
     handleServiceGroupPickerChange({ refreshDevices: false });
   } catch (error) {
-    console.error('Error deleting service group:', error);
-    const message = error instanceof Error ? error.message : String(error);
-    showMessage(serviceGroupMsg, `Error deleting service group: ${message}`);
+    console.error('IoT service group deletion request failed:', error);
+    showMessage(serviceGroupMsg, formatThrownError(error, IOT_CONTEXTS.deleteService));
   } finally {
     button.disabled = false;
     button.textContent = originalText || 'Delete';
@@ -1029,7 +1089,7 @@ async function handleDeleteMachine(button, machine) {
     const resp = await apiFetch(url, { method: 'DELETE', headers });
 
     if (!resp.ok) {
-      throw new Error(await extractError(resp));
+      throw new Error(await extractError(resp, IOT_CONTEXTS.deleteMachine));
     }
 
     removeLocalRegisteredId(machine.deviceId);
@@ -1040,9 +1100,8 @@ async function handleDeleteMachine(button, machine) {
     renderMachines();
     handleServiceGroupPickerChange({ refreshDevices: false });
   } catch (error) {
-    console.error('Error deleting machine:', error);
-    const message = error instanceof Error ? error.message : String(error);
-    showMessage(machineMsg, `Error deleting machine: ${message}`);
+    console.error('IoT device deletion request failed:', error);
+    showMessage(machineMsg, formatThrownError(error, IOT_CONTEXTS.deleteMachine));
   } finally {
     button.disabled = false;
     button.textContent = originalText || 'Delete';
@@ -1055,16 +1114,53 @@ function handleDeviceActivityUpdated() {
   renderMachines();
 }
 
-/**
- * Handle machine submission by calling the IoT Agent.
- */
-async function handleMachineSubmit(event) {
-  event.preventDefault();
-  hideMessage(machineMsg);
+function setupMachinePayloadPreview() {
+  machinePayloadRefresh?.addEventListener('click', updateMachinePayloadPreview);
+  machineForm?.addEventListener('input', updateMachinePayloadPreview);
+  machineForm?.addEventListener('change', updateMachinePayloadPreview);
+}
 
-  if (!serviceGroups.length) {
-    showMessage(machineMsg, 'Register a service group before adding machines.');
+function setMachinePayloadPreview(summary, preview) {
+  if (machinePayloadSummary) {
+    machinePayloadSummary.textContent = summary;
+  }
+  if (machinePayloadPreview) {
+    machinePayloadPreview.textContent = preview;
+  }
+}
+
+function updateMachinePayloadPreview() {
+  if (!machinePayloadSummary || !machinePayloadPreview) return;
+
+  const draft = buildMachineRegistrationDraft({ showErrors: false, validateDuplicate: false });
+  if (!draft.ready) {
+    setMachinePayloadPreview(
+      draft.message,
+      'Payload preview will appear after the required steps are complete.'
+    );
     return;
+  }
+
+  const method = draft.existsInAgent ? 'PUT' : 'POST';
+  const path = draft.existsInAgent
+    ? `/iot/devices/${encodeURIComponent(draft.deviceId)}`
+    : '/iot/devices';
+  const body = draft.existsInAgent ? draft.putPayload : draft.payload;
+  const summary = [
+    `${method} ${path}`,
+    `${draft.attributes.length} telemetry attribute${draft.attributes.length === 1 ? '' : 's'}`,
+    `${draft.staticAttributes.length} static attribute${draft.staticAttributes.length === 1 ? '' : 's'}`,
+    `entity ${draft.entityName}`
+  ].join(' · ');
+
+  setMachinePayloadPreview(summary, JSON.stringify({ request: { method, path }, body }, null, 2));
+}
+
+function buildMachineRegistrationDraft({ showErrors = true, validateDuplicate = true } = {}) {
+  if (!serviceGroups.length) {
+    const message = 'Register a service group before adding machines.';
+    if (showErrors) showMessage(machineMsg, message);
+    return { ready: false, message };
   }
 
   const deviceId = machineDeviceId?.value.trim() || '';
@@ -1074,35 +1170,45 @@ async function handleMachineSubmit(event) {
   const selectedServiceKey = machineServiceGroup?.value || '';
   const statusPlaceholder = getSelectedMachineStatusPlaceholder(machineStatus);
 
-  if (!deviceId) {
-    showMessage(machineMsg, 'Device ID is required.');
-    return;
-  }
-
-  // Pre-flight: block only if the IoT Agent record already carries portal metadata.
-  if (getPortalRegisteredDeviceIds().has(deviceId)) {
-    showMessage(machineMsg, 'This device is already registered — it appears in Machines in Use.');
-    return;
-  }
-
   if (!selectedServiceKey) {
-    showMessage(machineMsg, 'Select the service group responsible for this machine.');
-    return;
+    const message = 'Select the service group responsible for this machine.';
+    if (showErrors) showMessage(machineMsg, message);
+    return { ready: false, message };
   }
 
   const targetService = serviceGroups.find((svc) => svc.key === selectedServiceKey);
   if (!targetService) {
-    showMessage(machineMsg, 'Selected service group is no longer available. Reload and try again.');
-    return;
+    const message = 'Selected service group is no longer available. Reload and try again.';
+    if (showErrors) showMessage(machineMsg, message);
+    return { ready: false, message };
   }
 
-  // Use the entity type defined by the selected service group
+  if (!deviceId) {
+    const message = 'Enter the Device ID to preview the IoT Agent registration payload.';
+    if (showErrors) showMessage(machineMsg, 'Device ID is required.');
+    return { ready: false, message };
+  }
+
+  if (!friendlyName) {
+    const message = 'Enter the machine name to preview the IoT Agent registration payload.';
+    if (showErrors) showMessage(machineMsg, 'Machine name is required.');
+    return { ready: false, message };
+  }
+
+  if (validateDuplicate && getPortalRegisteredDeviceIds().has(deviceId)) {
+    const message = 'This device is already registered — it appears in Machines in Use.';
+    if (showErrors) showMessage(machineMsg, message);
+    return { ready: false, message };
+  }
+
   const entityType = targetService?.entityType || 'Thing';
   const entityName = buildEntityName(deviceId, entityType);
-
-  const attributes = collectTelemetryAttributes();
+  const attributes = collectTelemetryAttributes({ showErrors });
   if (attributes === null) {
-    return;
+    return {
+      ready: false,
+      message: 'Fix the telemetry attributes JSON before reviewing the payload.'
+    };
   }
 
   const defaultStaticAttributes = buildDefaultStaticAttributes({
@@ -1117,9 +1223,12 @@ async function handleMachineSubmit(event) {
     serviceSubservice: targetService.subservice,
     telemetryAttributes: attributes
   });
-  const customStaticAttributes = collectStaticAttributesInput();
+  const customStaticAttributes = collectStaticAttributesInput({ showErrors });
   if (customStaticAttributes === null) {
-    return;
+    return {
+      ready: false,
+      message: 'Fix the static attributes JSON before reviewing the payload.'
+    };
   }
   const staticAttributes = [...defaultStaticAttributes, ...customStaticAttributes];
 
@@ -1142,6 +1251,39 @@ async function handleMachineSubmit(event) {
     ]
   };
 
+  const putPayload = {
+    entity_name: entityName,
+    entity_type: entityType,
+    transport: IOT_AGENT_TRANSPORT,
+    protocol: IOT_AGENT_PROTOCOL,
+    attributes,
+    commands: [],
+    static_attributes: staticAttributes
+  };
+
+  return {
+    ready: true,
+    deviceId,
+    statusPlaceholder,
+    entityName,
+    attributes,
+    staticAttributes,
+    payload,
+    putPayload,
+    existsInAgent: allIotDevices.some((d) => d.deviceId === deviceId)
+  };
+}
+
+/**
+ * Handle machine submission by calling the IoT Agent.
+ */
+async function handleMachineSubmit(event) {
+  event.preventDefault();
+  hideMessage(machineMsg);
+
+  const draft = buildMachineRegistrationDraft({ showErrors: true, validateDuplicate: true });
+  if (!draft.ready) return;
+
   const submitBtn = machineForm?.querySelector('button[type="submit"]');
   const originalText = submitBtn?.textContent;
   if (submitBtn) {
@@ -1150,38 +1292,28 @@ async function handleMachineSubmit(event) {
   }
 
   try {
-    const existsInAgent = allIotDevices.some((d) => d.deviceId === deviceId);
     let resp;
-    if (existsInAgent) {
+    if (draft.existsInAgent) {
       // Device already provisioned in IoT Agent (e.g. auto-provisioned via MQTT).
       // Use PUT to attach portal metadata without re-creating it.
-      const putPayload = {
-        entity_name: entityName,
-        entity_type: entityType,
-        transport: IOT_AGENT_TRANSPORT,
-        protocol: IOT_AGENT_PROTOCOL,
-        attributes,
-        commands: [],
-        static_attributes: staticAttributes
-      };
-      resp = await apiFetch(`/iot/devices/${encodeURIComponent(deviceId)}`, {
+      resp = await apiFetch(`/iot/devices/${encodeURIComponent(draft.deviceId)}`, {
         method: 'PUT',
         headers: buildHeaders({ includeJson: true }),
-        body: JSON.stringify(putPayload)
+        body: JSON.stringify(draft.putPayload)
       });
     } else {
       resp = await apiFetch('/iot/devices', {
         method: 'POST',
         headers: buildHeaders({ includeJson: true }),
-        body: JSON.stringify(payload)
+        body: JSON.stringify(draft.payload)
       });
     }
 
     if (!resp.ok) {
-      throw new Error(await extractError(resp));
+      throw new Error(await extractError(resp, IOT_CONTEXTS.registerMachine));
     }
 
-    addLocalRegisteredId(deviceId);
+    addLocalRegisteredId(draft.deviceId);
     const lastSelection = machineServiceGroup?.value;
     machineForm?.reset();
     if (machineServiceGroup && lastSelection) {
@@ -1189,20 +1321,21 @@ async function handleMachineSubmit(event) {
     }
     resetAttributeInputs();
     if (machineStatus) {
-      machineStatus.value = String(statusPlaceholder.code);
+      machineStatus.value = String(draft.statusPlaceholder.code);
       updateMachineStatusPreview('machineStatusPreview', machineStatus.value);
     }
-    showMessage(machineMsg, `Machine ${deviceId} registered successfully.`, false);
+    updateMachinePayloadPreview();
+    showMessage(machineMsg, `Machine ${draft.deviceId} registered successfully.`, false);
 
     await fetchMachines();
     renderMachines();
     handleServiceGroupPickerChange({ refreshDevices: false }); // refresh picker to remove the just-registered device
   } catch (error) {
-    console.error('Error creating machine:', error);
-    showMessage(machineMsg, `Error creating machine: ${error.message}`);
+    console.error('IoT machine registration request failed:', error);
+    showMessage(machineMsg, formatThrownError(error, IOT_CONTEXTS.registerMachine));
   } finally {
     if (submitBtn) {
-      submitBtn.textContent = originalText || 'Save Machine';
+      submitBtn.textContent = originalText || 'Register Machine';
       submitBtn.disabled = false;
     }
   }
@@ -1508,12 +1641,14 @@ async function handleServiceGroupPickerChange(options = {}) {
   const selectedKey = machineServiceGroup?.value || '';
   if (!selectedKey) {
     deviceIdPickerWrapper.classList.add('hidden');
+    updateMachinePayloadPreview();
     return;
   }
 
   const targetGroup = serviceGroups.find((g) => g.key === selectedKey);
   if (!targetGroup) {
     deviceIdPickerWrapper.classList.add('hidden');
+    updateMachinePayloadPreview();
     return;
   }
 
@@ -1554,6 +1689,7 @@ async function handleServiceGroupPickerChange(options = {}) {
 
   if (!candidates.length) {
     deviceIdPickerWrapper.classList.add('hidden');
+    updateMachinePayloadPreview();
     return;
   }
 
@@ -1570,6 +1706,7 @@ async function handleServiceGroupPickerChange(options = {}) {
     .join('');
 
   deviceIdPickerWrapper.classList.remove('hidden');
+  updateMachinePayloadPreview();
 }
 
 /**
@@ -1581,6 +1718,7 @@ function refreshServiceGroupOptions(selectedKey = '') {
   if (!serviceGroups.length) {
     machineServiceGroup.innerHTML = '<option value="">Add a service group first</option>';
     machineServiceGroup.disabled = true;
+    updateMachinePayloadPreview();
     return;
   }
 
@@ -1599,6 +1737,7 @@ function refreshServiceGroupOptions(selectedKey = '') {
 
   machineServiceGroup.innerHTML = options.join('');
   machineServiceGroup.disabled = false;
+  updateMachinePayloadPreview();
 }
 
 /**
@@ -1645,7 +1784,7 @@ function populateApikeyFromName() {
     .slice(0, 64);
 }
 
-function collectTelemetryAttributes() {
+function collectTelemetryAttributes({ showErrors = true } = {}) {
   if (telemetryInputMode === 'automatic') {
     return telemetryAttributeEntries.map((entry) => ({ ...entry }));
   }
@@ -1660,12 +1799,14 @@ function collectTelemetryAttributes() {
     }
     return parsed;
   } catch (error) {
-    showMessage(machineMsg, `Attributes JSON error: ${error.message}`);
+    if (showErrors) {
+      showMessage(machineMsg, `Attributes JSON error: ${error.message}`);
+    }
     return null;
   }
 }
 
-function collectStaticAttributesInput() {
+function collectStaticAttributesInput({ showErrors = true } = {}) {
   if (staticAttributesInputModeState === 'automatic') {
     return staticAttributeEntries.map((entry) => ({ ...entry }));
   }
@@ -1680,7 +1821,9 @@ function collectStaticAttributesInput() {
     }
     return parsed;
   } catch (error) {
-    showMessage(machineMsg, `Static attributes JSON error: ${error.message}`);
+    if (showErrors) {
+      showMessage(machineMsg, `Static attributes JSON error: ${error.message}`);
+    }
     return null;
   }
 }
@@ -2446,15 +2589,12 @@ function renderMachinesError(err) {
 /**
  * Build an error string from an IoT Agent response.
  */
-async function extractError(resp) {
-  const text = await resp.text();
-  if (!text) return resp.statusText || `HTTP ${resp.status}`;
-  try {
-    const data = JSON.parse(text);
-    return data.description || data.error || data.message || text;
-  } catch (_err) {
-    return text;
-  }
+async function extractError(resp, context) {
+  return formatResponseError(resp, context || {
+    system: 'IoT Agent',
+    action: 'complete the request',
+    endpoint: 'IoT Agent API'
+  });
 }
 
 /**
@@ -3180,7 +3320,7 @@ async function handleEditMachineSubmit(event) {
       headers: buildHeaders({ includeJson: true }),
       body: JSON.stringify(payload)
     });
-    if (!resp.ok) throw new Error(await extractError(resp));
+    if (!resp.ok) throw new Error(await extractError(resp, IOT_CONTEXTS.updateMachine));
 
     closeModal('editMachineModal');
     showMessage(machineMsg, `Machine ${deviceId} updated successfully.`, false);
@@ -3189,7 +3329,7 @@ async function handleEditMachineSubmit(event) {
     renderMachines();
   } catch (error) {
     console.error('Error updating machine:', error);
-    showMessage(msgEl, `Error updating machine: ${error.message}`);
+    showMessage(msgEl, formatThrownError(error, IOT_CONTEXTS.updateMachine));
   } finally {
     if (submitBtn) { submitBtn.textContent = originalText || 'Save Changes'; submitBtn.disabled = false; }
   }

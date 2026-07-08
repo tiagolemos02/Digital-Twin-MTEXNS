@@ -14,6 +14,8 @@ export const loginSpinner = document.getElementById("loginSpinner");
 export const loginMsg = document.getElementById("loginMsg");
 
 // User Menu Elements
+export const portalSidebar = document.getElementById("portalSidebar");
+export const sidebarToggle = document.getElementById("sidebarToggle");
 export const userMenuWrapper = document.getElementById("userMenuWrapper");
 export const userInfoBtn = document.getElementById("userInfo");
 export const userDropdown = document.getElementById("userDropdown");
@@ -49,6 +51,13 @@ export const refreshRolesPermissions = document.getElementById("refreshRolesPerm
 export const rolesPermissionsMessage = document.getElementById("rolesPermissionsMessage");
 export const createRoleForm = document.getElementById("createRoleForm");
 export const roleName = document.getElementById("roleName");
+export const roleColorHex = document.getElementById("roleColorHex");
+export const roleColorPreview = document.getElementById("roleColorPreview");
+export const roleColorPalette = document.getElementById("roleColorPalette");
+export const roleColorPickerToggle = document.getElementById("roleColorPickerToggle");
+export const roleColorPickerPanel = document.getElementById("roleColorPickerPanel");
+export const roleColorToggleText = document.getElementById("roleColorToggleText");
+export const roleColorMsg = document.getElementById("roleColorMsg");
 export const btnCreateRole = document.getElementById("btnCreateRole");
 export const roleCreateMsg = document.getElementById("roleCreateMsg");
 export const createPermissionForm = document.getElementById("createPermissionForm");
@@ -173,6 +182,9 @@ export const staticAttributeAutoList = document.getElementById("staticAttributeA
 export const machineMsg = document.getElementById("machineMsg");
 export const machinesTableBody = document.getElementById("machinesTableBody");
 export const machineCount = document.getElementById("machineCount");
+export const machinePayloadSummary = document.getElementById("machinePayloadSummary");
+export const machinePayloadPreview = document.getElementById("machinePayloadPreview");
+export const machinePayloadRefresh = document.getElementById("machinePayloadRefresh");
 
 // Device picker elements (Add Machine form)
 export const deviceIdPickerWrapper = document.getElementById("deviceIdPickerWrapper");

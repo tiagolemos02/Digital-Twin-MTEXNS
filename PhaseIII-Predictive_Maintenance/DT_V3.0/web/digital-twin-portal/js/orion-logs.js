@@ -9,6 +9,7 @@ import { apiFetch } from './api-client.js';
 import {
     logsTableBody, logsMessage, deviceFilter, attributeFilter
 } from './dom-elements.js';
+import { formatResponseError, formatThrownError } from './error-messages.js';
 import { updateActivityFromDevices, getDeviceActivity } from './device-activity.js';
 import {
     getRegisteredMachineEntityIds,
@@ -20,6 +21,12 @@ import { DEFAULT_MACHINE_STATUS, renderMachineStatusBadge } from './machine-stat
 
 // In-memory storage for logs filtering
 let logsGrouped = [];
+const ORION_CONTEXT = {
+    system: 'PEP/Orion',
+    action: 'load current machine state',
+    endpoint: `GET /bff/fiware/v2/entities?type=${ENTITY_TYPE}&options=keyValues`,
+    recovery: 'Required permission: Orion Machine read. Ask an admin to grant it for this FIWARE service.'
+};
 
 function escapeHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -61,7 +68,7 @@ export async function listLogs() {
     if (!sessionToken) {
         logsTableBody.innerHTML =
             "<tr><td colspan='5' class='px-6 py-4 text-center text-sm text-gray-500'>Sign in to view Orion device activity.</td></tr>";
-        logsMessage.textContent = "Authentication required.";
+        logsMessage.textContent = "PEP/Orion could not load current machine state. Next: sign in through Keyrock.";
         logsMessage.className = "mt-3 text-sm text-gray-500";
         firstLoad = true;
         return;
@@ -76,17 +83,10 @@ export async function listLogs() {
         const rtt = Math.round(performance.now() - t0); // Network RTT in ms
 
         if (!resp.ok) {
-            let detail = "";
-            try {
-                const txt = await resp.text();
-                try { detail = JSON.parse(txt).description || txt; }
-                catch { detail = txt; }
-            } catch {}
-            
-            logsMessage.textContent = `Orion/PEP error (HTTP ${resp.status})${detail ? `: ${detail}` : ""}`;
+            logsMessage.textContent = await formatResponseError(resp, ORION_CONTEXT);
             logsMessage.className = "mt-3 text-sm text-red-600";
             logsTableBody.innerHTML =
-                "<tr><td colspan='5' class='px-6 py-4 text-center text-sm text-red-500'>Error loading logs</td></tr>";
+                "<tr><td colspan='5' class='px-6 py-4 text-center text-sm text-red-500'>Could not load current state. Check the message above for the required permission.</td></tr>";
             return;
         }
 
@@ -139,10 +139,10 @@ export async function listLogs() {
 
     } catch (e) {
         console.error("Error fetching logs:", e);
-        logsMessage.textContent = "Network error.";
+        logsMessage.textContent = formatThrownError(e, ORION_CONTEXT);
         logsMessage.className = "mt-3 text-sm text-red-600";
         logsTableBody.innerHTML =
-            "<tr><td colspan='5' class='px-6 py-4 text-center text-sm text-red-500'>Network error</td></tr>";
+            "<tr><td colspan='5' class='px-6 py-4 text-center text-sm text-red-500'>Could not reach Orion through the PEP/BFF path.</td></tr>";
     }
 }
 

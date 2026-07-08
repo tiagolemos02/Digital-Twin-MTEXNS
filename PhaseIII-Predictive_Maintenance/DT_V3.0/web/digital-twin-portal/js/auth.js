@@ -43,7 +43,7 @@ function showAuthErrorFromUrl() {
     const url = new URL(window.location.href);
     const error = url.searchParams.get('auth_error');
     if (!error) return;
-    loginMsg.textContent = `Authentication failed: ${error}`;
+    loginMsg.textContent = `Keyrock could not complete sign-in. Detail: ${error}. Next: try signing in again; if it repeats, check the Keyrock container and redirect URI configuration.`;
     url.searchParams.delete('auth_error');
     window.history.replaceState({}, document.title, url.pathname + url.search + url.hash);
 }
@@ -179,12 +179,34 @@ async function resolveTabAccessRules() {
         orion: canReadOrion,
         historical: canReadOrion,
         digitalTwin: canUseInventory,
-        inventory: canUseInventory
+        inventory: canUseInventory,
+        _capabilities: [
+            {
+                name: "Keyrock admin API",
+                endpoint: "GET /bff/keyrock/v1/users",
+                allowed: canAdmin
+            },
+            {
+                name: "Orion machine read",
+                endpoint: "GET /bff/fiware/v2/entities?type=Machine",
+                allowed: canReadOrion
+            },
+            {
+                name: "IoT Agent services read",
+                endpoint: "GET /bff/fiware/iot/services",
+                allowed: canReadIotServices
+            },
+            {
+                name: "IoT Agent devices read",
+                endpoint: "GET /bff/fiware/iot/devices",
+                allowed: canReadIotDevices
+            }
+        ]
     };
 }
 
 function resolveInitialTab(access) {
-    const order = ['users', 'orion', 'historical', 'inventory', 'digitalTwin', 'roles', 'audit', 'settings'];
+    const order = ['inventory', 'orion', 'historical', 'digitalTwin', 'users', 'roles', 'audit', 'settings'];
     for (const tab of order) {
         if (access[tab]) return tab;
     }

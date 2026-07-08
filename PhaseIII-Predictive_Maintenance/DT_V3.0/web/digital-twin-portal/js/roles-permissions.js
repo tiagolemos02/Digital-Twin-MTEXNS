@@ -2,6 +2,7 @@ import { KEYROCK_BFF_BASE, KEYROCK_CLIENT_ID, sessionToken } from "./config.js";
 import { listUsers } from "./users.js";
 import {
   refreshRolesPermissions, rolesPermissionsMessage, createRoleForm, roleName, btnCreateRole, roleCreateMsg,
+  roleColorHex, roleColorPreview, roleColorPalette, roleColorPickerToggle, roleColorPickerPanel, roleColorToggleText, roleColorMsg,
   createPermissionForm, permissionName, permissionDescription, permissionAction, permissionResource,
   permissionIsRegex, permissionAuthHeader, permissionUseAuthHeader, permissionXml, permissionAssignRole,
   permissionEditId, permissionFormTitle, btnCreatePermission, btnCancelPermissionEdit, permissionCreateMsg,
@@ -12,6 +13,7 @@ import {
   allPermissionsTableBody, allPermissionsMsg, roleAssignmentsTableBody,
   roleAssignmentsMsg, permissionXmlHelpBtn, xacmlHelpModal, xacmlHelpClose
 } from "./dom-elements.js";
+import { formatResponseError, formatThrownError } from "./error-messages.js";
 
 let initialized = false;
 let roles = [];
@@ -21,6 +23,8 @@ let roleAssignments = new Map();
 let selectedRoleId = "";
 let selectedRolePermissions = [];
 let permissionEditorSource = "";
+let roleColors = new Map();
+let pendingRoleColor = "";
 
 const esc = (v) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 const roleById = (id) => roles.find((r) => r.id === id) || null;
@@ -28,6 +32,19 @@ const permById = (id) => permissions.find((p) => p.id === id) || null;
 const headers = (extra = {}) => ({ Accept: "application/json", ...extra });
 function msg(el, text, type = "error") { if (!el) return; el.textContent = text || ""; el.classList.remove("text-red-600", "text-green-600"); el.classList.add(type === "success" ? "text-green-600" : "text-red-600"); }
 const clr = (el) => msg(el, "");
+const KEYROCK_ADMIN_RECOVERY = "Required permission: Keyrock application administration. Ask an admin to assign the role-management permission, then sign in again.";
+const ROLE_COLOR_STORAGE_KEY = `dt-role-colors:${KEYROCK_CLIENT_ID || "default"}`;
+const DEFAULT_ROLE_COLORS = ["#E30517", "#221E1F", "#6E6F73", "#047857", "#0F766E", "#1D4ED8", "#B45309", "#7C3AED", "#BE123C", "#0369A1", "#4D7C0F", "#A16207"];
+const DEFAULT_ROLE_COLOR = DEFAULT_ROLE_COLORS[0];
+
+function keyrockContext(action, endpoint) {
+  return {
+    system: "Keyrock admin API",
+    action,
+    endpoint,
+    recovery: KEYROCK_ADMIN_RECOVERY
+  };
+}
 
 async function keyrockFetch(path, { method = "GET", headers: extraHeaders = {}, body } = {}) {
   const init = {
@@ -42,16 +59,121 @@ async function keyrockFetch(path, { method = "GET", headers: extraHeaders = {}, 
 }
 
 async function respErr(resp, fallback) {
-  const text = await resp.text().catch(() => "");
-  if (text) {
-    try {
-      const j = JSON.parse(text);
-      return `${fallback}: ${j?.error?.message || j?.message || text}`;
-    } catch (_e) {
-      return `${fallback}: ${text}`;
-    }
+  return formatResponseError(resp, keyrockContext(fallback.toLowerCase(), "Keyrock API request"));
+}
+
+function normalizeHexColor(value, fallback = DEFAULT_ROLE_COLOR) {
+  const raw = String(value || "").trim();
+  const withHash = /^[0-9a-fA-F]{3}$|^[0-9a-fA-F]{6}$/.test(raw) ? `#${raw}` : raw;
+  const expanded = /^#[0-9a-fA-F]{3}$/.test(withHash)
+    ? `#${withHash.slice(1).split("").map((char) => `${char}${char}`).join("")}`
+    : withHash;
+  return /^#[0-9a-fA-F]{6}$/.test(expanded) ? expanded.toUpperCase() : fallback;
+}
+
+function colorTextFor(bgColor) {
+  const hex = normalizeHexColor(bgColor).slice(1);
+  const r = parseInt(hex.slice(0, 2), 16) / 255;
+  const g = parseInt(hex.slice(2, 4), 16) / 255;
+  const b = parseInt(hex.slice(4, 6), 16) / 255;
+  const linear = [r, g, b].map((channel) => (
+    channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4
+  ));
+  const luminance = 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+  return luminance > 0.46 ? "#221E1F" : "#FFFFFF";
+}
+
+function roleColorFor(roleId, roleNameValue = "") {
+  return roleColors.get(roleId) || roleColors.get(`name:${roleNameValue}`) || DEFAULT_ROLE_COLOR;
+}
+
+function roleBadgeHtml(role, { removable = false, userId = "" } = {}) {
+  const color = roleColorFor(role.id, role.name);
+  const textColor = colorTextFor(color);
+  const removeButton = removable
+    ? `<button type='button' class='remove-role-btn role-badge-remove' data-user-id='${esc(userId)}' data-role-id='${esc(role.id)}' aria-label='Remove ${esc(role.name)} role'>&times;</button>`
+    : "";
+  return `<span class='role-badge' style='--role-color:${esc(color)};--role-text:${esc(textColor)};'>
+    <span class='role-badge-dot' aria-hidden='true'></span>${esc(role.name || role.id)}${removeButton}
+  </span>`;
+}
+
+function loadRoleColors() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(ROLE_COLOR_STORAGE_KEY) || "{}");
+    roleColors = new Map(Object.entries(saved));
+  } catch (_err) {
+    roleColors = new Map();
   }
-  return `${fallback} (HTTP ${resp.status})`;
+}
+
+function saveRoleColors() {
+  try {
+    localStorage.setItem(ROLE_COLOR_STORAGE_KEY, JSON.stringify(Object.fromEntries(roleColors.entries())));
+  } catch (_err) {
+    // Role colors are a portal presentation preference; role management still works without storage.
+  }
+}
+
+function assignRoleColor(roleId, color, roleNameValue = "") {
+  const normalized = normalizeHexColor(color);
+  if (roleId) roleColors.set(roleId, normalized);
+  if (roleNameValue) roleColors.set(`name:${roleNameValue}`, normalized);
+  saveRoleColors();
+}
+
+function syncRoleColorMetadata() {
+  let changed = false;
+  roles.forEach((role, index) => {
+    const existing = roleColors.get(role.id) || roleColors.get(`name:${role.name}`);
+    if (existing) {
+      roleColors.set(role.id, normalizeHexColor(existing));
+      changed = true;
+      return;
+    }
+    roleColors.set(role.id, DEFAULT_ROLE_COLORS[index % DEFAULT_ROLE_COLORS.length]);
+    changed = true;
+  });
+  if (changed) saveRoleColors();
+}
+
+function selectedRoleColor() {
+  return pendingRoleColor;
+}
+
+function setRoleColorPickerOpen(open) {
+  roleColorPickerPanel?.classList.toggle("hidden", !open);
+  roleColorPickerToggle?.setAttribute("aria-expanded", String(open));
+}
+
+function clearRoleColorWarning() {
+  if (!roleColorMsg) return;
+  roleColorMsg.textContent = "";
+  roleColorMsg.classList.add("hidden");
+}
+
+function showRoleColorWarning(message) {
+  if (!roleColorMsg) return;
+  roleColorMsg.textContent = message;
+  roleColorMsg.classList.remove("hidden");
+}
+
+function updateRoleColorPreview(color = "") {
+  const normalized = color ? normalizeHexColor(color, "") : "";
+  pendingRoleColor = normalized;
+  if (roleColorHex) roleColorHex.value = normalized;
+  if (roleColorPreview) {
+    roleColorPreview.style.backgroundColor = normalized || "transparent";
+    roleColorPreview.style.borderColor = normalized || "";
+    roleColorPreview.classList.toggle("role-color-preview-empty", !normalized);
+  }
+  if (roleColorToggleText) {
+    roleColorToggleText.textContent = normalized ? normalized : "Select color tag";
+  }
+  roleColorPalette?.querySelectorAll(".role-color-swatch").forEach((button) => {
+    button.classList.toggle("is-selected", Boolean(normalized) && normalizeHexColor(button.dataset.color) === normalized);
+  });
+  if (normalized) clearRoleColorWarning();
 }
 
 async function getList(path, key) {
@@ -305,11 +427,13 @@ function renderRolesTable() {
       <td class='px-4 py-3 text-sm'>
         <button type='button' class='role-select-btn w-full text-left' data-role-id='${esc(r.id)}'>
           <span class='block text-xs text-gray-500'>ID: ${esc(r.id)}</span>
-          <span class='block text-sm font-semibold text-gray-800'>${esc(r.name || r.id)}</span>
+          <span class='mt-1 block'>${roleBadgeHtml({ id: r.id, name: r.name || r.id })}</span>
         </button>
       </td>
       <td class='px-4 py-3 text-right text-sm'>
-        <button type='button' class='delete-role-btn bg-red-600 hover:bg-red-700 text-white text-xs px-3 py-1 rounded-md' data-role-id='${esc(r.id)}' data-role-name='${esc(r.name || r.id)}'>Delete role</button>
+        <div class='flex flex-wrap items-center justify-end gap-2'>
+          <button type='button' class='delete-role-btn bg-red-600 hover:bg-red-700 text-white text-xs px-3 py-1 rounded-md' data-role-id='${esc(r.id)}' data-role-name='${esc(r.name || r.id)}'>Delete role</button>
+        </div>
       </td>
     </tr>`;
   }).join("");
@@ -326,7 +450,7 @@ function renderUsersRoleTable() {
   roleAssignmentsTableBody.innerHTML = users.map((u) => {
     const assigned = (roleAssignments.get(u.id) || []).map((rid) => ({ id: rid, name: roleMap.get(rid) || rid }));
     const badges = assigned.length
-      ? assigned.map((r) => `<span class='inline-flex items-center bg-indigo-50 text-indigo-700 text-xs px-2 py-1 rounded-full mr-1 mb-1'>${esc(r.name)}<button type='button' class='remove-role-btn ml-1 text-indigo-700 hover:text-indigo-900' data-user-id='${esc(u.id)}' data-role-id='${esc(r.id)}'>&times;</button></span>`).join("")
+      ? assigned.map((r) => roleBadgeHtml(r, { removable: true, userId: u.id })).join("")
       : "<span class='text-xs text-gray-500'>No roles assigned</span>";
     return `<tr>
       <td class='px-4 py-3 text-sm'><div class='font-medium text-gray-800'>${esc(u.username || u.id)}</div><div class='text-xs text-gray-500'>${esc(u.email || "")}</div></td>
@@ -444,15 +568,32 @@ export async function handleCreateRole() {
   clr(roleCreateMsg);
   clr(rolesPermissionsMessage);
   const name = roleName?.value.trim() || "";
+  const color = selectedRoleColor();
   if (!name) {
     msg(roleCreateMsg, "Role name is required.");
     return;
   }
+  if (!color) {
+    showRoleColorWarning("Select a color for this role tag before creating the role.");
+    msg(roleCreateMsg, "Select a color for the desired role tag.");
+    setRoleColorPickerOpen(true);
+    return;
+  }
   try {
     await apiCreateRole(name);
+    roleColors.set(`name:${name}`, color);
+    saveRoleColors();
     if (createRoleForm) createRoleForm.reset();
+    updateRoleColorPreview("");
+    setRoleColorPickerOpen(false);
     msg(roleCreateMsg, "Role created successfully.", "success");
     await refreshRolesPermissionsData();
+    const createdRole = roles.find((role) => (role.name || role.id) === name);
+    if (createdRole) {
+      assignRoleColor(createdRole.id, color, createdRole.name || name);
+      renderRolesTable();
+      renderUsersRoleTable();
+    }
   } catch (e) {
     msg(roleCreateMsg, e.message || "Failed to create role.");
   }
@@ -524,6 +665,41 @@ function bindRolesTable() {
     }
   });
   rolesTableBody.dataset.bound = "true";
+}
+
+function bindRoleColorPicker() {
+  if (roleColorPickerToggle && roleColorPickerToggle.dataset.bound !== "true") {
+    roleColorPickerToggle.addEventListener("click", () => {
+      const open = roleColorPickerPanel?.classList.contains("hidden") ?? true;
+      setRoleColorPickerOpen(open);
+    });
+    roleColorPickerToggle.dataset.bound = "true";
+  }
+
+  if (roleColorHex && roleColorHex.dataset.bound !== "true") {
+    roleColorHex.addEventListener("input", () => {
+      const normalized = normalizeHexColor(roleColorHex.value, "");
+      if (/^#?[0-9a-fA-F]{6}$/.test(roleColorHex.value.trim())) {
+        updateRoleColorPreview(normalized);
+      }
+    });
+    roleColorHex.addEventListener("blur", () => {
+      if (roleColorHex.value.trim()) updateRoleColorPreview(roleColorHex.value);
+    });
+    roleColorHex.dataset.bound = "true";
+  }
+
+  if (roleColorPalette && roleColorPalette.dataset.bound !== "true") {
+    roleColorPalette.addEventListener("click", (event) => {
+      const swatch = event.target.closest(".role-color-swatch");
+      if (!swatch) return;
+      updateRoleColorPreview(swatch.dataset.color || "");
+    });
+    roleColorPalette.dataset.bound = "true";
+  }
+
+  updateRoleColorPreview("");
+  setRoleColorPickerOpen(false);
 }
 
 function bindRolePermissionsPanel() {
@@ -814,7 +990,7 @@ export async function refreshRolesPermissionsData() {
   clr(roleAssignmentsMsg);
   clr(rolePermissionsDetailMsg);
   if (!sessionToken) {
-    msg(rolesPermissionsMessage, "Admin session not available. Re-login with an admin user.");
+    msg(rolesPermissionsMessage, "Keyrock admin API could not load roles and permissions. Next: sign in with an administrator session.");
     return;
   }
   if (rolesTableBody) rolesTableBody.innerHTML = "<tr><td colspan='2' class='px-4 py-3 text-center'><i class='fas fa-spinner loading-spinner text-indigo-600'></i></td></tr>";
@@ -829,6 +1005,7 @@ export async function refreshRolesPermissionsData() {
     roles = r.sort((x, y) => String(x.name || "").localeCompare(String(y.name || "")));
     permissions = p.sort((x, y) => String(x.name || "").localeCompare(String(y.name || "")));
     users = u.sort((x, y) => String(x.username || "").localeCompare(String(y.username || "")));
+    syncRoleColorMetadata();
     roleAssignments = new Map();
     a.forEach((row) => {
       if (!row?.user_id || !row?.role_id) return;
@@ -851,7 +1028,7 @@ export async function refreshRolesPermissionsData() {
     }
   } catch (e) {
     console.error("Roles & permissions refresh failed:", e);
-    msg(rolesPermissionsMessage, e.message || "Failed to load roles/permissions.");
+    msg(rolesPermissionsMessage, formatThrownError(e, keyrockContext("load roles and permissions", "GET /bff/keyrock/v1/applications/{clientId}/roles")));
   }
 }
 
@@ -865,6 +1042,8 @@ export function initRolesPermissions() {
   if (btnCreatePermission) btnCreatePermission.addEventListener("click", handleCreatePermission);
   if (createPermissionForm) createPermissionForm.addEventListener("submit", (e) => { e.preventDefault(); handleCreatePermission(); });
   if (refreshRolesPermissions) refreshRolesPermissions.addEventListener("click", refreshRolesPermissionsData);
+  loadRoleColors();
+  bindRoleColorPicker();
   bindRolesTable();
   bindRolePermissionsPanel();
   bindRoleAssignments();

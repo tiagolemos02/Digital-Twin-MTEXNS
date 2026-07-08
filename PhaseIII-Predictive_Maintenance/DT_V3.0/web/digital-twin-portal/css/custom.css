@@ -1,34 +1,33 @@
 .mode-toggle {
   position: relative;
   overflow: hidden;
-  border-radius: 9999px;
-  background: linear-gradient(to right, #1E3A8A, #4C51BF);
-  transition: background 0.25s ease;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.375rem;
+  background: #f8fafc;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
   cursor: pointer;
   --toggle-progress: 0;
 }
 
 .mode-toggle[data-mode='automatic'] {
-  background: linear-gradient(to right, #10B981, #34D399);
+  background: #f7fefb;
+  border-color: #86efac;
   --toggle-progress: 1;
 }
 
 .mode-toggle::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: radial-gradient(
-    circle at calc(20% + (var(--toggle-progress) * 60%)) 50%,
-    rgba(255, 255, 255, 0.22),
-    transparent 60%
-  );
-  transition: background 0.25s ease;
+  display: none;
 }
 
 .mode-toggle .mode-knob {
   pointer-events: none;
-  transition: transform 0.2s ease;
+  border: 1px solid #d1d5db;
+  box-shadow: none;
+  transition: transform 0.18s ease, border-color 0.18s ease;
+}
+
+.mode-toggle[data-mode='automatic'] .mode-knob {
+  border-color: #86efac;
 }
 
 .mode-toggle .mode-knob-label {
@@ -38,20 +37,20 @@
   align-items: center;
   justify-content: center;
   font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
   pointer-events: none;
-  transition: opacity 0.2s ease;
+  transition: opacity 0.18s ease;
 }
 
 .mode-toggle .mode-knob-label-manual {
-  color: #1E3A8A;
+  color: #334155;
   opacity: calc(1 - var(--toggle-progress));
 }
 
 .mode-toggle .mode-knob-label-auto {
-  color: #047857;
+  color: #065f46;
   opacity: var(--toggle-progress);
 }
 

@@ -15,11 +15,19 @@ import {
   historicalMessage
 } from './dom-elements.js';
 import { getRegisteredMachines, getMachineLabel } from './inventory.js';
+import { formatHttpError, formatThrownError } from './error-messages.js';
 
 let selectedEntityId = '';
 const AUTO_REFRESH_MS = 5 * 1000;
+const CHART_ACCENT = '#e30517';
 let autoRefreshTimer = null;
 let isHistoricalLoadRunning = false;
+const QUANTUMLEAP_CONTEXT = {
+  system: 'QuantumLeap',
+  action: 'load historical telemetry',
+  endpoint: 'GET /bff/fiware/quantumleap/v2/entities/{entityId}/attrs/{attr}',
+  recovery: 'Required permission: QuantumLeap historical read. Confirm the machine is registered and telemetry has arrived after the subscription was created.'
+};
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -271,8 +279,8 @@ function renderChart(series) {
     <line x1="${padX}" y1="${padY}" x2="${padX}" y2="${height - padY}" stroke="#e5e7eb"></line>
     <text x="8" y="${padY + 4}" fill="#6b7280" font-size="12">${escapeHtml(formatValue(max))}</text>
     <text x="8" y="${height - padY + 4}" fill="#6b7280" font-size="12">${escapeHtml(formatValue(min))}</text>
-    <polyline fill="none" stroke="#4f46e5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" points="${points}"></polyline>
-    ${numeric.map((point) => `<circle cx="${xFor(point.index).toFixed(1)}" cy="${yFor(point.value).toFixed(1)}" r="2.5" fill="#4f46e5"></circle>`).join('')}
+    <polyline fill="none" stroke="${CHART_ACCENT}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" points="${points}"></polyline>
+    ${numeric.map((point) => `<circle cx="${xFor(point.index).toFixed(1)}" cy="${yFor(point.value).toFixed(1)}" r="2.5" fill="${CHART_ACCENT}"></circle>`).join('')}
   `;
 }
 
@@ -280,7 +288,7 @@ export function refreshHistoricalData() {
   if (!sessionToken) {
     setTablePlaceholder('Sign in to view historical data.');
     clearChart('Authentication required');
-    setMessage('Authentication required.', true);
+    setMessage('QuantumLeap could not load historical telemetry. Next: sign in through Keyrock.', true);
     return;
   }
 
@@ -353,7 +361,12 @@ export async function loadHistoricalSeries() {
         continue;
       }
 
-      lastError = new Error(`QuantumLeap error (HTTP ${resp.status})${bodyText ? `: ${bodyText}` : ''}`);
+      lastError = new Error(formatHttpError({
+        ...QUANTUMLEAP_CONTEXT,
+        endpoint: `GET /bff/fiware${path}`,
+        status: resp.status,
+        detail: bodyText
+      }));
       break;
     }
 
@@ -377,8 +390,8 @@ export async function loadHistoricalSeries() {
   } catch (error) {
     console.error('Historical data load failed:', error);
     clearChart('Unable to load history');
-    setTablePlaceholder('Unable to load historical data.');
-    setMessage(error.message || 'Unable to load historical data.', true);
+    setTablePlaceholder('Could not load historical data. Check the message below for recovery steps.');
+    setMessage(formatThrownError(error, QUANTUMLEAP_CONTEXT), true);
   } finally {
     isHistoricalLoadRunning = false;
   }

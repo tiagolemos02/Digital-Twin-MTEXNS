@@ -16,6 +16,21 @@ import {
     createMsg,
     createUserForm
 } from './dom-elements.js';
+import { formatResponseError, formatThrownError } from './error-messages.js';
+
+const USERS_CONTEXT = {
+    system: 'Keyrock admin API',
+    action: 'load users',
+    endpoint: 'GET /bff/keyrock/v1/users',
+    recovery: 'Ask an admin to assign Keyrock user-read permission, then sign in again.'
+};
+
+const CREATE_USER_CONTEXT = {
+    system: 'Keyrock admin API',
+    action: 'create the user',
+    endpoint: 'POST /bff/keyrock/v1/users',
+    recovery: 'Confirm the account fields and administrator role, then try again.'
+};
 
 export async function listUsers() {
     usersMessage.textContent = '';
@@ -23,8 +38,8 @@ export async function listUsers() {
         "<tr><td colspan='4' class='px-6 py-4 text-center'><i class='fas fa-spinner loading-spinner text-indigo-600'></i></td></tr>";
 
     if (!sessionToken) {
-        usersMessage.textContent = 'Admin session not available. Please login again.';
-        usersTableBody.innerHTML = "<tr><td colspan='4' class='px-6 py-4 text-center text-sm text-gray-500'>Admin session missing</td></tr>";
+        usersMessage.textContent = 'Keyrock admin API could not load users. Next: sign in with an administrator session.';
+        usersTableBody.innerHTML = "<tr><td colspan='4' class='px-6 py-4 text-center text-sm text-gray-500'>Administrator session required.</td></tr>";
         return;
     }
 
@@ -38,21 +53,19 @@ export async function listUsers() {
         });
 
         if (!resp.ok) {
-            const body = await resp.text().catch(() => '');
-            console.error('BFF /v1/users error:', resp.status, body);
-            usersMessage.textContent = `Error listing users (HTTP ${resp.status})`;
+            usersMessage.textContent = await formatResponseError(resp, USERS_CONTEXT);
             usersTableBody.innerHTML =
-                "<tr><td colspan='4' class='px-6 py-4 text-center text-sm text-red-500'>Error loading users</td></tr>";
+                "<tr><td colspan='4' class='px-6 py-4 text-center text-sm text-red-500'>Could not load users. Check the message above for the required permission.</td></tr>";
             return;
         }
 
         const data = await resp.json();
         renderUsersTable(data.users);
     } catch (e) {
-        console.error('Error listing users:', e);
-        usersMessage.textContent = 'Network error.';
+        console.error('Keyrock users request failed:', e);
+        usersMessage.textContent = formatThrownError(e, USERS_CONTEXT);
         usersTableBody.innerHTML =
-            "<tr><td colspan='4' class='px-6 py-4 text-center text-sm text-red-500'>Network error</td></tr>";
+            "<tr><td colspan='4' class='px-6 py-4 text-center text-sm text-red-500'>Could not reach Keyrock through the BFF.</td></tr>";
     }
 }
 
@@ -86,7 +99,7 @@ export async function handleCreateUser() {
     createMsg.className = 'mt-3 text-sm text-red-600';
 
     if (!sessionToken) {
-        createMsg.textContent = 'Admin session not available.';
+        createMsg.textContent = 'Keyrock admin API could not create the user. Next: sign in with an administrator session.';
         return;
     }
 
@@ -123,11 +136,10 @@ export async function handleCreateUser() {
             return;
         }
 
-        const err = await resp.json().catch(() => ({}));
-        createMsg.textContent = 'Error creating user: ' + (err.error?.message || resp.statusText);
+        createMsg.textContent = await formatResponseError(resp, CREATE_USER_CONTEXT);
     } catch (e) {
-        console.error('Error creating user:', e);
-        createMsg.textContent = 'Network error.';
+        console.error('Keyrock user creation request failed:', e);
+        createMsg.textContent = formatThrownError(e, CREATE_USER_CONTEXT);
     }
 }
 

@@ -32,8 +32,67 @@ const tabAccess = {
     inventory: true
 };
 
+const TAB_ACCESS_DETAILS = {
+    users: {
+        label: "User Management",
+        capability: "Keyrock admin API",
+        endpoint: "GET /bff/keyrock/v1/users",
+        recovery: "Sign in with an administrator role that can read Keyrock users."
+    },
+    roles: {
+        label: "Roles & Permissions",
+        capability: "Keyrock roles and permissions",
+        endpoint: "GET /bff/keyrock/v1/applications/{clientId}/roles",
+        recovery: "Sign in with an administrator role that can manage application roles."
+    },
+    audit: {
+        label: "Audit Logs",
+        capability: "Keyrock admin API",
+        endpoint: "GET /bff/keyrock/v1/users",
+        recovery: "Sign in with an administrator role before viewing audit data."
+    },
+    settings: {
+        label: "Security Settings",
+        capability: "Keyrock admin API",
+        endpoint: "GET /bff/keyrock/v1/users",
+        recovery: "Sign in with an administrator role before changing security settings."
+    },
+    orion: {
+        label: "Current State",
+        capability: "Orion machine read",
+        endpoint: "GET /bff/fiware/v2/entities?type=Machine",
+        recovery: "Ask an admin to grant Orion Machine read permission for this FIWARE service."
+    },
+    historical: {
+        label: "Historical Data",
+        capability: "Orion machine read",
+        endpoint: "GET /bff/fiware/v2/entities?type=Machine",
+        recovery: "Ask an admin to grant Orion Machine read permission before loading historical telemetry."
+    },
+    digitalTwin: {
+        label: "3D Digital Twin",
+        capability: "IoT Agent inventory read",
+        endpoint: "GET /bff/fiware/iot/services and /iot/devices",
+        recovery: "Ask an admin to grant IoT Agent service and device read permissions."
+    },
+    inventory: {
+        label: "Machines & Services",
+        capability: "IoT Agent inventory read",
+        endpoint: "GET /bff/fiware/iot/services and /iot/devices",
+        recovery: "Ask an admin to grant IoT Agent service and device read permissions."
+    }
+};
+
 const ACCESS_DENIED_PLACEHOLDER_ATTR = "data-access-denied-placeholder";
-const warnedTabs = new Set();
+
+function escapeHtml(value = "") {
+    return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+}
 
 /**
  * Show/hide dropdown menu
@@ -41,6 +100,7 @@ const warnedTabs = new Set();
  */
 export function showDropdown(show = true) {
     userDropdown.classList.toggle("hidden", !show);
+    userDropdown.previousElementSibling?.setAttribute("aria-expanded", String(show));
 }
 
 /**
@@ -58,6 +118,7 @@ export function clearTabButtonStyles() {
     Object.values(TAB_MAP).forEach(({ button: btn }) => {
         btn.classList.remove("tab-active", "text-indigo-600");
         btn.classList.add("text-gray-500", "border-transparent");
+        btn.setAttribute("aria-current", "false");
     });
 }
 
@@ -75,7 +136,7 @@ function canAccessTab(name) {
 }
 
 function getTabLabel(name) {
-    const label = TAB_MAP[name]?.button?.textContent || name;
+    const label = TAB_ACCESS_DETAILS[name]?.label || TAB_MAP[name]?.button?.textContent || name;
     return label.replace(/\s+/g, " ").trim();
 }
 
@@ -99,8 +160,14 @@ function ensureAccessDeniedPlaceholder(name) {
           <i class="fas fa-ban text-amber-600"></i>
         </div>
         <div>
-          <h2 class="text-xl font-semibold text-gray-800 mb-2">${getTabLabel(name)}</h2>
-          <p class="text-gray-600">You don't have access to this resource.</p>
+          <h2 class="text-xl font-semibold text-gray-800 mb-2">${escapeHtml(getTabLabel(name))}</h2>
+          <p class="text-gray-700 font-medium">This module is blocked for your current session.</p>
+          <p class="text-sm text-gray-600 mt-1">
+            Required capability: ${escapeHtml(TAB_ACCESS_DETAILS[name]?.capability || "module access")}
+            <span class="text-gray-400">·</span>
+            Check: <code class="text-xs text-gray-700">${escapeHtml(TAB_ACCESS_DETAILS[name]?.endpoint || "permission check")}</code>
+          </p>
+          <p class="text-sm text-gray-600 mt-2">${escapeHtml(TAB_ACCESS_DETAILS[name]?.recovery || "Ask an administrator to update your permissions, then sign in again.")}</p>
         </div>
       </div>
     `;
@@ -127,7 +194,8 @@ function applyTabAccessStyles() {
         button.classList.toggle("opacity-50", blocked);
         button.classList.toggle("text-gray-400", blocked);
         if (blocked) {
-            button.title = "You do not have access to this tab.";
+            const details = TAB_ACCESS_DETAILS[name];
+            button.title = `${details?.label || getTabLabel(name)} is blocked. Required: ${details?.capability || "module access"}.`;
         } else {
             button.removeAttribute("title");
         }
@@ -147,17 +215,18 @@ export function switchTab(name) {
     }
 
     const blocked = !canAccessTab(name);
-    if (blocked && !warnedTabs.has(name)) {
-        warnedTabs.add(name);
-        window.alert("You do not have access to this tab.");
-    }
 
     selected.button.classList.add("tab-active", "text-indigo-600");
+    selected.button.setAttribute("aria-current", "page");
     selected.section.classList.remove("hidden");
 
     setTabDeniedState(name, blocked);
     applyTabAccessStyles();
     return !blocked;
+}
+
+export function getTabAccessDetails() {
+    return TAB_ACCESS_DETAILS;
 }
 
 export function setTabAccessRules(access = {}) {
