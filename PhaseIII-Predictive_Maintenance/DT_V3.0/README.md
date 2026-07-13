@@ -212,6 +212,10 @@ Why this was done:
 - The portal should feel connected to MTEX NS without turning every panel red.
 - Dense telemetry and security screens need typography that separates headings, labels, data, and actions clearly.
 
+Example image:
+<img width="1277" height="722" alt="image" src="https://github.com/user-attachments/assets/4ee49154-422a-4979-b5e6-9299e64ed120" />
+
+
 ---
 
 ### ✅ Role color tags
