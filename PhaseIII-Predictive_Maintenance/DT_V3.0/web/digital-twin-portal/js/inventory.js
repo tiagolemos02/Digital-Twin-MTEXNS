@@ -76,6 +76,7 @@ let serviceGroups = [];
 let machines = [];
 let orionFallbackMachines = [];
 let allIotDevices = [];
+const registeredMachineSubscribers = new Set();
 let loadingServiceGroups = false;
 let loadingMachines = false;
 const ACTIVITY_REFRESH_MIN_INTERVAL_MS = 30 * 1000;
@@ -165,6 +166,30 @@ function getPortalRegisteredDeviceIds(devices = allIotDevices) {
 
 function getVisibleMachines() {
   return machines.length ? machines : orionFallbackMachines;
+}
+
+function buildRegisteredMachinesSnapshot() {
+  return getVisibleMachines().map((machine) => ({
+    ...machine,
+    attributes: Array.isArray(machine.attributes)
+      ? machine.attributes.map((attr) => ({ ...attr }))
+      : [],
+    staticAttributes: Array.isArray(machine.staticAttributes)
+      ? machine.staticAttributes.map((attr) => ({ ...attr }))
+      : [],
+    machineStatus: machine.machineStatus ? { ...machine.machineStatus } : { ...DEFAULT_MACHINE_STATUS }
+  }));
+}
+
+function notifyRegisteredMachines() {
+  const snapshot = buildRegisteredMachinesSnapshot();
+  registeredMachineSubscribers.forEach((listener) => {
+    try {
+      listener(snapshot);
+    } catch (error) {
+      console.error('Registered machine subscriber failed:', error);
+    }
+  });
 }
 
 const SYSTEM_STATIC_ATTR_NAMES = new Set([
@@ -360,6 +385,7 @@ function startMachineStatusTicker() {
 function renderLoginRequiredState() {
   serviceGroups = [];
   machines = [];
+  notifyRegisteredMachines();
   updateCounts();
 
   if (serviceGroupsTableBody) {
@@ -844,6 +870,7 @@ async function fetchMachines() {
     showMessage(machineMsg, formatThrownError(error, IOT_CONTEXTS.loadDevices));
   } finally {
     loadingMachines = false;
+    notifyRegisteredMachines();
   }
 }
 
@@ -1094,6 +1121,21 @@ async function handleDeleteMachine(button, machine) {
 
     removeLocalRegisteredId(machine.deviceId);
     removeLocalRegisteredMachineMetadata(machine.deviceId);
+    try {
+      const cleanupResponse = await fetch(
+        `/bff/portal/digital-twin-layout/machines/${encodeURIComponent(machine.deviceId)}`,
+        {
+          method: 'DELETE',
+          credentials: 'include',
+          headers: buildHeaders()
+        }
+      );
+      if (!cleanupResponse.ok) {
+        console.warn('Machine deleted, but saved digital-twin layouts could not be cleaned up.');
+      }
+    } catch (cleanupError) {
+      console.warn('Machine deleted, but saved digital-twin layout cleanup failed:', cleanupError);
+    }
     showMessage(machineMsg, `Machine ${machine.deviceId} deleted successfully.`, false);
 
     await fetchMachines();
@@ -1112,6 +1154,7 @@ function handleDeviceActivityUpdated() {
   if (loadingMachines || !machinesTableBody) return;
   if (!machines.length) return;
   renderMachines();
+  notifyRegisteredMachines();
 }
 
 function setupMachinePayloadPreview() {
@@ -1186,12 +1229,6 @@ function buildMachineRegistrationDraft({ showErrors = true, validateDuplicate = 
   if (!deviceId) {
     const message = 'Enter the Device ID to preview the IoT Agent registration payload.';
     if (showErrors) showMessage(machineMsg, 'Device ID is required.');
-    return { ready: false, message };
-  }
-
-  if (!friendlyName) {
-    const message = 'Enter the machine name to preview the IoT Agent registration payload.';
-    if (showErrors) showMessage(machineMsg, 'Machine name is required.');
     return { ready: false, message };
   }
 
@@ -1569,15 +1606,18 @@ export function getRegisteredMachineEntityIds() {
  * Return a copy of the portal-registered machines for read-only UI modules.
  */
 export function getRegisteredMachines() {
-  return getVisibleMachines().map((machine) => ({
-    ...machine,
-    attributes: Array.isArray(machine.attributes)
-      ? machine.attributes.map((attr) => ({ ...attr }))
-      : [],
-    staticAttributes: Array.isArray(machine.staticAttributes)
-      ? machine.staticAttributes.map((attr) => ({ ...attr }))
-      : []
-  }));
+  return buildRegisteredMachinesSnapshot();
+}
+
+/**
+ * Subscribe to read-only registered-machine snapshots.
+ * Returns an unsubscribe function for shorter-lived callers.
+ */
+export function subscribeRegisteredMachines(listener) {
+  if (typeof listener !== 'function') return () => {};
+  registeredMachineSubscribers.add(listener);
+  listener(buildRegisteredMachinesSnapshot());
+  return () => registeredMachineSubscribers.delete(listener);
 }
 
 /**
@@ -1628,6 +1668,7 @@ export function syncRegisteredMachinesFromOrionEntities(entities = []) {
     .filter(Boolean);
 
   orionFallbackMachines = next.length ? mergeDuplicateDevices(next) : [];
+  if (!machines.length) notifyRegisteredMachines();
 }
 
 /**
@@ -3264,7 +3305,6 @@ async function handleEditMachineSubmit(event) {
   const selectedServiceKey = document.getElementById('editMachineServiceGroup')?.value || '';
 
   if (!deviceId) { showMessage(msgEl, 'Device ID is missing.'); return; }
-  if (!friendlyName) { showMessage(msgEl, 'Machine name is required.'); return; }
   if (!selectedServiceKey) {
     showMessage(msgEl, 'Select the service group responsible for this machine.');
     return;

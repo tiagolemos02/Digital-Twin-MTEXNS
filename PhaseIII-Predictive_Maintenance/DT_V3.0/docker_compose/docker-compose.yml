@@ -10,6 +10,7 @@ volumes:
   mysql-db:
   authzforce-data:
   crate-db:
+  portal-bff-data:
 
 secrets:
   my_secret_data:
@@ -174,11 +175,13 @@ services:
       - BFF_KEYROCK_ADMIN_NAME=${KEYROCK_ADMIN_EMAIL}
       - BFF_KEYROCK_ADMIN_PASS=${KEYROCK_ADMIN_PASS:?KEYROCK_ADMIN_PASS must be set}
       - BFF_SESSION_SECRET=${BFF_SESSION_SECRET:?BFF_SESSION_SECRET must be set}
+      - BFF_LAYOUT_STORE_PATH=/app/data/digital-twin-layouts.json
     ports:
       - "${PORTAL_BFF_PORT}:${PORTAL_BFF_PORT}"
     entrypoint: ["/bin/sh", "/opt/bootstrap/portal-bff-entrypoint.sh"]
     volumes:
       - ../web/digital-twin-portal:/app/public:ro
+      - portal-bff-data:/app/data
       - ./bootstrap/.env.generated:/work/.env.generated:ro
       - ./bootstrap/portal-bff-entrypoint.sh:/opt/bootstrap/portal-bff-entrypoint.sh:ro
     networks:

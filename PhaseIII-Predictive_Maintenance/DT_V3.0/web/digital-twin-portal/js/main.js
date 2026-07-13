@@ -58,7 +58,18 @@ async function initializeApp() {
     }, 1500);
     setupAuthenticationHandlers();
     setupUserManagementHandlers();
-    initTwinViewer();
+    initTwinViewer({
+        onProvisionMachine: () => {
+            const hasAccess = switchTab('inventory');
+            if (!hasAccess) return;
+            window.requestAnimationFrame(() => {
+                const form = document.getElementById('machineForm');
+                const firstField = document.getElementById('machineServiceGroup') || document.getElementById('machineDeviceId');
+                form?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                firstField?.focus({ preventScroll: true });
+            });
+        }
+    });
     initInventory();
 
     await resumeStoredSession();

@@ -1,8 +1,10 @@
-# Phase III - Predictive Maintenance v0.4
+# Phase III - Predictive Maintenance v0.5
 
 **This phase starts the predictive maintenance roadmap by adding the historical telemetry foundation required for later machine learning and tightening the secured operator portal around that foundation.**
 
-Version `0.4` does **not** train or run ML predictions yet. Its purpose is to make the secured portal easier to operate and closer to the MTEX NS product context: users can understand their access context, navigate through a collapsible workflow sidebar, register machines through a guided payload-driven flow, recover from denied/error states without going straight to logs, assign color-coded roles, and work in a quieter operations-console visual system.
+Version `0.5` adds a personal multi-machine 3D factory layout to the secured portal. Registered machines now appear automatically on an interactive grid, each user can arrange the factory for their own account, and selecting a machine preserves the existing detailed 3D inspection experience alongside identity, status, and predictive-maintenance availability.
+
+Version `0.5` still does **not** train or run ML predictions. It extends the operational digital-twin experience while keeping layout metadata separate from Orion, IoT Agent, and the rest of FIWARE.
 
 The existing Phase II security model remains the baseline: browser traffic goes through the portal, PEP Proxy, API Gateway, Keyrock, and AuthzForce policies. CrateDB and QuantumLeap are intentionally kept internal-only.
 
@@ -12,11 +14,42 @@ The existing Phase II security model remains the baseline: browser traffic goes 
 
 **Phase**: `Phase III - Predictive Maintenance`
 
-**Version**: `0.4`
+**Version**: `0.5`
 
 **Author**: Tiago Lemos
 
 **Licence**: MIT
+
+---
+
+## Scope of v0.5
+
+### Implemented
+
+- Interactive Three.js factory map containing all portal-registered machines
+- Reuse of the existing static GLB model for every machine instance
+- Automatic placement in the first free grid cell and automatic grid expansion
+- Visible `Machine Name (Device ID)` labels, with Device ID fallback when no machine name exists
+- Current operational status displayed directly on the map through textual labels and status-colored rings
+- Machine selection with the existing rotatable and zoomable 3D viewer in a lateral inspector
+- Inspector sections for machine identity, current status, and `Sem previsão disponível`
+- Personal **Edit layout** mode with grid-snapped movement, unrestricted Y-axis rotation, collision prevention, **Save**, and **Cancel**
+- Per-user account persistence through `portal-bff`, including revision conflict detection and cross-device synchronization
+- Layout coordinates and rotation stored only in portal metadata, outside Orion, IoT Agent, and FIWARE entities
+- Automatic layout cleanup after machine deprovisioning
+- Empty-map action that opens **Machines & Services** for machine provisioning
+- Responsive desktop and mobile presentation aligned with the MTEX NS operational visual system
+
+### Not Implemented Yet
+
+- Predictive-maintenance forecasts or telemetry inside the machine inspector
+- ML model training
+- Anomaly detection
+- Remaining useful life prediction
+- Prediction tables in CrateDB
+- Writing prediction results back to Orion
+
+This version turns the previous single-machine 3D view into a personal factory-level digital-twin workspace while preserving the existing FIWARE machine model and security architecture.
 
 ---
 
@@ -117,6 +150,40 @@ This version focuses on ingestion correctness. Historical data and future ML wor
 - Dashboards for predictive maintenance
 
 This phase deliberately separates **data collection** from **prediction**. Predictive maintenance models need enough clean historical data first; this version creates that data layer.
+
+---
+
+## New in v0.5
+
+### ✅ Personal 3D factory layout
+
+The **3D Digital Twin** tab now presents all portal-registered machines on an interactive factory grid.
+
+What changed:
+
+- Every registered machine uses the existing static GLB model and is placed automatically in the first free grid cell.
+- Machine labels use `Machine Name (Device ID)` and fall back to the Device ID when no machine name was supplied.
+- Operators can orbit, pan, zoom, reset the camera, select a machine, and inspect the existing rotatable/zoomable machine viewer in a lateral panel.
+- The inspector exposes identity, current status, and the placeholder `Sem previsão disponível` because predictive-maintenance data is not generated in this version.
+- **Edit layout** enables grid-snapped movement and unrestricted Y-axis rotation with explicit **Save** and **Cancel** actions.
+- Occupied cells cannot be reused, and the grid expands automatically as machines are added.
+- Layouts are private to the signed-in Keyrock user and follow that account across devices.
+- Layout coordinates and rotation are stored by `portal-bff` in its own persistent volume. They are never written to Orion, IoT Agent, or other FIWARE entities.
+- Concurrent saves use layout revisions so one browser session cannot silently overwrite a newer layout.
+- Deprovisioning a machine removes its placement from all saved layouts. Reprovisioning it assigns the first free cell again.
+- An empty layout links directly to **Machines & Services** so an operator can provision the first machine.
+- The workspace adapts to desktop and mobile while retaining the restrained MTEX NS red, charcoal, gray, and neutral visual language.
+
+Why this was done:
+
+- Operators need factory-level spatial context instead of opening an isolated machine model without seeing the other provisioned assets.
+- Reusing the existing machine viewer preserves detailed rotation and zoom behavior while the map handles navigation and selection across the factory.
+- Personal layouts let each user organize the same registered machines around their own workflow without imposing one shared arrangement on every account.
+- Keeping layout metadata in the portal avoids mixing presentation concerns with Orion machine state or IoT Agent provisioning data.
+- Automatic placement, collision prevention, and the provisioning action keep the workflow usable from an empty factory through later machine additions.
+- The identity/status inspector creates a stable operational surface without presenting predictive information before real prediction data exists.
+
+The 3D scene shows current operational status, but no prediction or predictive telemetry is generated in this version.
 
 ---
 
@@ -620,6 +687,21 @@ CrateDB
 
 CrateDB is not exposed to the host. The portal never connects directly to CrateDB.
 
+Personal 3D layout flow:
+
+```text
+Browser 3D Digital Twin
+  |
+  | authenticated GET/PUT
+  v
+portal-bff
+  |
+  v
+portal-bff-data volume
+```
+
+The Keyrock user ID is hashed before it becomes a storage key. Layout writes use revisions to detect concurrent edits from another browser session. Layout data remains separate from FIWARE machine state.
+
 ---
 
 ## New Services
@@ -794,7 +876,9 @@ The UI shows the registered friendly attribute name, but queries the stored obje
 
 | File | Purpose |
 |------|---------|
-| `docker_compose/docker-compose.yml` | Adds `crate-db`, `quantumleap`, `historical-subscription`, `historical-schema-sync`, and the Node-based IoT Agent healthcheck |
+| `docker_compose/docker-compose.yml` | Adds `crate-db`, `quantumleap`, historical bootstrap services, the Node-based IoT Agent healthcheck, and the persistent `portal-bff-data` layout volume |
+| `docker_compose/bff/layout-store.js` | Validates and atomically persists revisioned per-user 3D layouts outside FIWARE |
+| `docker_compose/bff/layout-store.test.js` | Covers layout normalization, user isolation, conflicts, and deprovision cleanup |
 | `docker_compose/.env.example` | Adds image/config variables for CrateDB, QuantumLeap, and schema sync |
 | `docker_compose/bootstrap/historical-subscription.sh` | Creates/updates the Orion subscription for QuantumLeap |
 | `docker_compose/bootstrap/historical-schema-sync.sh` | Adds missing CrateDB columns for new Machine attributes |
@@ -805,20 +889,24 @@ The UI shows the registered friendly attribute name, but queries the stored obje
 
 | File | Purpose |
 |------|---------|
-| `web/digital-twin-portal/index.html` | Adds Historical Data tab and section; adds Access profile visibility, the MTEX NS sidebar shell, workflow-grouped navigation, guided machine registration stepper, IoT/NGSI payload preview, and role color picker UI |
+| `web/digital-twin-portal/index.html` | Adds Historical Data and multi-machine 3D Digital Twin workspaces; adds Access profile visibility, the MTEX NS sidebar shell, workflow-grouped navigation, guided machine registration stepper, IoT/NGSI payload preview, and role color picker UI |
+| `web/digital-twin-portal/js/digital-twin.js` | Coordinates personal layout loading, inventory updates, selection, edit/save/cancel state, and the machine inspector |
+| `web/digital-twin-portal/js/digital-twin-scene.js` | Renders the Three.js factory grid, static machine instances, status rings, labels, camera controls, dragging, and rotation |
+| `web/digital-twin-portal/js/digital-twin-layout.js` | Implements deterministic placement, collision checks, layout reconciliation, movement, rotation, and bounds calculations |
+| `web/digital-twin-portal/js/digital-twin-layout.test.js` | Covers placement, reconciliation, collisions, rotation, bounds, and label fallback behavior |
 | `web/digital-twin-portal/js/historical-data.js` | Implements historical query, chart, table, auto-refresh, and MTEX NS chart accent styling |
 | `web/digital-twin-portal/js/dom-elements.js` | Adds DOM exports for historical UI, access/profile context, sidebar controls, registration payload preview, and role color picker controls |
-| `web/digital-twin-portal/js/main.js` | Initializes historical data and controls sidebar collapse/group behavior |
+| `web/digital-twin-portal/js/main.js` | Initializes historical and 3D twin modules, controls sidebar behavior, and routes the empty-map CTA to machine provisioning |
 | `web/digital-twin-portal/js/auth.js` | Refreshes historical state after login/session changes and applies authenticated access/profile and tab access rules |
 | `web/digital-twin-portal/js/ui-helpers.js` | Adds Historical Data tab behavior, workflow tab access handling, access/profile helpers, and inline denied placeholders |
 | `web/digital-twin-portal/js/error-messages.js` | Centralizes recovery-oriented HTTP, network, and denied-state message formatting |
-| `web/digital-twin-portal/js/inventory.js` | Exposes registered machine metadata, controls Machines in Use, enforces canonical `urn:ngsi-ld:Machine:<unique_id>` entity IDs, encodes portal telemetry metadata, refreshes the IoT Agent device picker, renders dynamic machine status badges, drives the guided registration stepper, and generates IoT Agent payload previews |
+| `web/digital-twin-portal/js/inventory.js` | Exposes reactive registered-machine metadata, controls Machines in Use, permits optional machine names, cleans saved placements after deprovisioning, enforces canonical entity IDs, and drives registration/status workflows |
 | `web/digital-twin-portal/js/device-activity.js` | Extracts live Orion activity and `machine_status` metadata for portal views |
 | `web/digital-twin-portal/js/orion-logs.js` | Renders Current State device headers with live machine status badges and recovery-oriented Orion/PEP errors |
 | `web/digital-twin-portal/js/users.js` | Uses recovery-oriented Keyrock user-management messages |
 | `web/digital-twin-portal/js/roles-permissions.js` | Uses recovery-oriented Keyrock role/permission-management messages and manages role color metadata, color validation, palette selection, custom hex preview, and colored assignment badges |
 | `web/digital-twin-portal/js/machine-status.js` | Defines machine status code mappings, RGB colors, dropdown options, parsing, and shared badge rendering |
-| `web/digital-twin-portal/css/styles.css` | Adds MTEX NS color/typography tokens, sidebar layout, role color picker styling, flatter operational panels, reduced shadows, denser tables, and reduced-motion behavior |
+| `web/digital-twin-portal/css/styles.css` | Adds MTEX NS color/typography tokens, responsive 3D workspace styling, sidebar layout, role color picker styling, flatter operational panels, denser tables, and reduced-motion behavior |
 | `web/digital-twin-portal/css/custom.css` | Replaces decorative gradient mode toggles with quieter segmented-control styling |
 
 ---

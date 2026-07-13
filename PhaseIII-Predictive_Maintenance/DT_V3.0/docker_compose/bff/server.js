@@ -3,6 +3,11 @@ import crypto from "crypto";
 import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
+import {
+  createLayoutStore,
+  LayoutConflictError,
+  LayoutValidationError
+} from "./layout-store.js";
 
 const PORT = Number(process.env.BFF_PORT || process.env.PORT || 8001);
 const PUBLIC_BASE_URL = process.env.BFF_PUBLIC_BASE_URL || `http://localhost:${PORT}`;
@@ -17,6 +22,7 @@ const FIWARE_BASE_URL = process.env.BFF_FIWARE_BASE_URL || "http://pep-proxy:102
 const ADMIN_ROLE_NAME = (process.env.BFF_ADMIN_ROLE_NAME || "Admin").toLowerCase();
 const ADMIN_NAME = process.env.BFF_KEYROCK_ADMIN_NAME || process.env.KEYROCK_ADMIN_EMAIL || "";
 const ADMIN_PASS = process.env.BFF_KEYROCK_ADMIN_PASS || process.env.KEYROCK_ADMIN_PASS || "";
+const LAYOUT_STORE_PATH = process.env.BFF_LAYOUT_STORE_PATH || path.join("/app", "data", "digital-twin-layouts.json");
 
 if (!KEYROCK_CLIENT_ID || !KEYROCK_CLIENT_SECRET) {
   console.error("Missing KEYROCK_CLIENT_ID or KEYROCK_CLIENT_SECRET in BFF environment.");
@@ -38,6 +44,7 @@ let adminTokenCache = {
 };
 
 const app = express();
+const layoutStore = createLayoutStore({ filePath: LAYOUT_STORE_PATH });
 app.use(cookieParser());
 // Keep proxied payloads as raw buffers; JSON/body parsers would consume and reshape them.
 app.use("/bff/fiware", express.raw({ type: "*/*", limit: "10mb" }));
@@ -497,6 +504,86 @@ app.post("/auth/logout", (req, res) => {
     success: true,
     keyrock_logout_url: keyrockExternalLogoutUrl()
   });
+});
+
+app.get("/bff/portal/digital-twin-layout", requireAuthenticatedSession, async (req, res) => {
+  try {
+    const layout = await layoutStore.getForUser(req.bffSession.user?.id);
+    res.json(layout);
+  } catch (error) {
+    console.error("Unable to load digital-twin layout:", error);
+    res.status(500).json({ error: "Unable to load the personal digital-twin layout." });
+  }
+});
+
+app.put("/bff/portal/digital-twin-layout", requireAuthenticatedSession, async (req, res) => {
+  try {
+    const layout = await layoutStore.replaceForUser(
+      req.bffSession.user?.id,
+      req.body,
+      req.body?.baseRevision
+    );
+    res.json(layout);
+  } catch (error) {
+    if (error instanceof LayoutValidationError) {
+      res.status(400).json({ error: error.message });
+      return;
+    }
+    if (error instanceof LayoutConflictError) {
+      res.status(409).json({
+        error: error.message,
+        currentLayout: error.currentLayout
+      });
+      return;
+    }
+    console.error("Unable to save digital-twin layout:", error);
+    res.status(500).json({ error: "Unable to save the personal digital-twin layout." });
+  }
+});
+
+app.delete("/bff/portal/digital-twin-layout/machines/:deviceId", requireAuthenticatedSession, async (req, res) => {
+  const session = req.bffSession;
+  const deviceId = String(req.params.deviceId || "").trim();
+  if (!deviceId) {
+    res.status(400).json({ error: "Device ID is required." });
+    return;
+  }
+
+  try {
+    const valid = await ensureAccessToken(session);
+    if (!valid) {
+      destroySession(req, res);
+      res.status(401).json({ error: "Session expired" });
+      return;
+    }
+
+    // Global cleanup is permitted only after the IoT Agent confirms that the
+    // authenticated user can no longer read the device.
+    const targetUrl = new URL(`/iot/devices/${encodeURIComponent(deviceId)}`, FIWARE_BASE_URL).toString();
+    const headers = buildForwardHeaders(req);
+    headers.Authorization = `Bearer ${session.accessToken}`;
+    headers["X-Auth-Token"] = session.accessToken;
+    const upstream = await fetch(targetUrl, { method: "GET", headers });
+
+    if (upstream.ok) {
+      res.status(409).json({ error: "The machine still exists in the IoT Agent." });
+      return;
+    }
+    if (upstream.status !== 404) {
+      res.status(upstream.status).json({ error: "Unable to verify that the machine was removed." });
+      return;
+    }
+
+    const result = await layoutStore.removeMachineEverywhere(deviceId);
+    res.json(result);
+  } catch (error) {
+    if (error instanceof LayoutValidationError) {
+      res.status(400).json({ error: error.message });
+      return;
+    }
+    console.error("Unable to remove machine from digital-twin layouts:", error);
+    res.status(500).json({ error: "Unable to clean up digital-twin layouts." });
+  }
 });
 
 app.all("/bff/fiware/*", requireAuthenticatedSession, async (req, res) => {

@@ -623,13 +623,12 @@
                       />
                     </div>
                     <div>
-                      <label for="machineName" class="block text-sm font-medium text-gray-700 mb-1">Machine name</label>
+                      <label for="machineName" class="block text-sm font-medium text-gray-700 mb-1">Machine name <span class="font-normal text-gray-500">(optional)</span></label>
                       <input
                         type="text"
                         id="machineName"
                         class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                         placeholder="e.g. Hydraulic Press 01"
-                        required
                       />
                     </div>
                     <div>
@@ -1153,32 +1152,134 @@
 
       <!-- DIGITAL TWIN SECTION -->
       <section id="digitalTwinSection" class="hidden">
-        <div class="card bg-white rounded-lg p-6">
-          <div class="flex items-center mb-6">
-            <div class="bg-indigo-100 p-2 rounded-full mr-3">
-              <i class="fas fa-cube text-indigo-600"></i>
-            </div>
-            <h2 class="text-xl font-semibold text-gray-800">
-              3D Digital Twin
-            </h2>
-          </div>
-
-          <!-- 3-D viewer -->
-           <model-viewer id="machineViewer"
-                         src="models/base_basic_pbr.glb"
-                         alt="Machine Digital Twin"
-                         auto-rotate
-                         camera-controls
-                         shadow-intensity="1"
-                         style="width:100%;height:500px;background:#f3f4f6;">
-              <!-- simple progress bar -->
-               <div id="twinLoader" 
-                    slot="progress-bar"
-                    class="absolute inset-0 flex items-center justify-center 
-                           pointer-events-none">
-                <i class="fas fa-spinner fa-spin text-indigo-600 text-2xl"></i>
+        <div class="digital-twin-tool" id="digitalTwinTool">
+          <header class="twin-toolbar">
+            <div class="twin-heading">
+              <span class="twin-heading-icon" aria-hidden="true"><i class="fas fa-cubes-stacked"></i></span>
+              <div>
+                <h2>3D Digital Twin</h2>
+                <p id="twinMachineCount">0 machines</p>
               </div>
-            </model-viewer>
+            </div>
+
+            <div class="twin-toolbar-actions">
+              <label class="twin-machine-picker" for="twinMachinePicker">
+                <span class="sr-only">Select machine</span>
+                <select id="twinMachinePicker" aria-label="Select machine">
+                  <option value="">Select machine</option>
+                </select>
+              </label>
+              <label id="twinRotationControl" class="twin-rotation-control hidden" for="twinRotationInput">
+                <span>Rotation</span>
+                <input id="twinRotationInput" type="number" min="0" max="359.999" step="0.1" value="0" disabled />
+                <span aria-hidden="true">°</span>
+              </label>
+              <button id="twinResetView" type="button" class="twin-icon-button" aria-label="Reset 3D view" title="Reset view">
+                <i class="fas fa-crosshairs" aria-hidden="true"></i>
+              </button>
+              <button id="twinEditLayout" type="button" class="twin-secondary-button">
+                <i class="fas fa-pen-ruler" aria-hidden="true"></i>
+                <span>Edit layout</span>
+              </button>
+              <button id="twinCancelLayout" type="button" class="twin-secondary-button hidden">
+                <i class="fas fa-xmark" aria-hidden="true"></i>
+                <span>Cancel</span>
+              </button>
+              <button id="twinSaveLayout" type="button" class="twin-primary-button hidden">
+                <i class="fas fa-floppy-disk" aria-hidden="true"></i>
+                <span>Save</span>
+              </button>
+            </div>
+          </header>
+
+          <div id="twinMessage" class="twin-message hidden" role="alert"></div>
+
+          <div id="twinWorkspace" class="twin-workspace">
+            <div id="twinMapPane" class="twin-map-pane">
+              <div
+                id="twinCanvasHost"
+                class="twin-canvas-host"
+                tabindex="0"
+                role="application"
+                aria-label="Interactive 3D factory map"
+              >
+                <div id="twinLoadingState" class="twin-state-layer twin-loading-state">
+                  <div class="twin-loading-copy">
+                    <span>Loading factory</span>
+                    <span id="twinLoadingPercent">0%</span>
+                  </div>
+                  <div class="twin-progress-track" aria-hidden="true">
+                    <span id="twinLoadProgress"></span>
+                  </div>
+                </div>
+
+                <div id="twinEmptyState" class="twin-state-layer twin-empty-state hidden">
+                  <span class="twin-empty-icon" aria-hidden="true"><i class="fas fa-industry"></i></span>
+                  <h3>No machines provisioned</h3>
+                  <p>The factory floor is ready for its first registered machine.</p>
+                  <button id="twinProvisionMachine" type="button" class="twin-primary-button">
+                    <i class="fas fa-plus" aria-hidden="true"></i>
+                    <span>Provision machine</span>
+                  </button>
+                </div>
+
+                <div id="twinErrorState" class="twin-state-layer twin-error-state hidden">
+                  <span class="twin-error-icon" aria-hidden="true"><i class="fas fa-triangle-exclamation"></i></span>
+                  <h3>Factory map unavailable</h3>
+                  <p id="twinErrorText">The 3D scene could not be loaded.</p>
+                  <button id="twinRetry" type="button" class="twin-secondary-button">Try again</button>
+                </div>
+
+                <div id="twinLiveRegion" class="sr-only" aria-live="polite"></div>
+              </div>
+            </div>
+
+            <aside id="twinInspector" class="twin-inspector hidden" aria-label="Selected machine details">
+              <div class="twin-inspector-header">
+                <div>
+                  <p>Selected machine</p>
+                  <h3 id="twinInspectorTitle">Machine</h3>
+                </div>
+                <button id="twinCloseInspector" type="button" class="twin-icon-button" aria-label="Close machine details" title="Close details">
+                  <i class="fas fa-xmark" aria-hidden="true"></i>
+                </button>
+              </div>
+
+              <div class="twin-viewer-shell">
+                <model-viewer
+                  id="machineViewer"
+                  src="models/base_basic_pbr.glb"
+                  alt="Selected machine digital twin"
+                  auto-rotate
+                  camera-controls
+                  shadow-intensity="1"
+                >
+                  <div id="twinLoader" slot="progress-bar" class="twin-viewer-loader">
+                    <span>Loading model</span>
+                  </div>
+                </model-viewer>
+              </div>
+
+              <section class="twin-inspector-section" aria-labelledby="twinIdentityHeading">
+                <h4 id="twinIdentityHeading">Identity</h4>
+                <dl class="twin-identity-list">
+                  <div><dt>Machine name</dt><dd id="twinInspectorName">—</dd></div>
+                  <div><dt>Device ID</dt><dd id="twinInspectorDeviceId">—</dd></div>
+                  <div><dt>Entity ID</dt><dd id="twinInspectorEntityId">—</dd></div>
+                </dl>
+              </section>
+
+              <section class="twin-inspector-section" aria-labelledby="twinStatusHeading">
+                <h4 id="twinStatusHeading">Status</h4>
+                <div id="twinInspectorStatus"></div>
+              </section>
+
+              <section class="twin-inspector-section twin-prediction-section" aria-labelledby="twinPredictionHeading">
+                <h4 id="twinPredictionHeading">Predictive maintenance</h4>
+                <p>Sem previsão disponível</p>
+              </section>
+            </aside>
+          </div>
         </div>
       </section>
 
@@ -1642,8 +1743,8 @@
             </div>
           </div>
           <div>
-            <label for="editMachineName" class="block text-sm font-medium text-gray-700 mb-1">Machine name</label>
-            <input type="text" id="editMachineName" required
+            <label for="editMachineName" class="block text-sm font-medium text-gray-700 mb-1">Machine name <span class="font-normal text-gray-500">(optional)</span></label>
+            <input type="text" id="editMachineName"
               class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
               placeholder="e.g. Hydraulic Press 01" />
           </div>
@@ -1851,6 +1952,14 @@
 
   <!-- Load JavaScript modules in the correct order -->
   <script src="js/runtime-config.js"></script>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.1/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.1/examples/jsm/"
+      }
+    }
+  </script>
   <script type="module"
     src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js">
   </script>
