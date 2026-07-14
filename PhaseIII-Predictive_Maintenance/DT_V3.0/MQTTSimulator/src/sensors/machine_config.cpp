@@ -1,34 +1,49 @@
 #include "machine_config.h"
 #include "sensor_generators.h"
 #include "../connectivity/mqtt_manager.h"
+#include "../connectivity/time_manager.h"
 
-const Machine MachineConfig::machines[] = {
-  { "00:00:0A:B3:47:FA" },
-  { "00:00:1B:C4:58:GB" }  // ← new machine? just add a line
+Machine MachineConfig::machines[] = {
+  { "00:00:0A:B3:47:FA", PROFILE_PRODUCTION, {} },
+  { "00:00:1B:C4:58:FB", PROFILE_INTERMITTENT, {} },
+  { "00:00:2C:D5:69:FC", PROFILE_MAINTENANCE, {} }
 };
 
 const uint8_t MachineConfig::MACHINE_COUNT = sizeof(machines) / sizeof(machines[0]);
 
-void MachineConfig::publishAllMachines() {
+void MachineConfig::initialize() {
   for (uint8_t i = 0; i < MACHINE_COUNT; ++i) {
-    publishMachine(machines[i]);
+    SensorGenerators::initializeMachine(machines[i]);
   }
 }
 
-void MachineConfig::publishMachine(const Machine& machine) {
+void MachineConfig::publishAllMachines() {
+  String heartbeat;
+  const bool hasValidHeartbeat = TimeManager::currentTimestamp(heartbeat);
+
+  for (uint8_t i = 0; i < MACHINE_COUNT; ++i) {
+    SensorGenerators::advanceMachine(machines[i], millis());
+    publishMachine(machines[i], heartbeat, hasValidHeartbeat);
+  }
+}
+
+void MachineConfig::publishMachine(Machine& machine, const String& heartbeat, bool hasValidHeartbeat) {
   for (uint8_t s = 0; s < SensorGenerators::getSensorCount(); ++s) {
     const Sensor& sensor = SensorGenerators::getSensor(s);
-    
+
+    if (sensor.kind == SENSOR_HEARTBEAT && !hasValidHeartbeat) {
+      continue;
+    }
+
     String topic = String(machine.id) + "/state/" + sensor.suffix;
     String payload;
-    
-    if (sensor.isInt) {
-      payload = String((int)sensor.gen());
-    } else {
-      payload = String(sensor.gen(), 3);
-    }
-    
+
+    SensorGenerators::buildPayload(sensor, machine, heartbeat, payload);
     MQTTManager::publish(topic, payload);
+
+    if ((s % 16) == 15) {
+      MQTTManager::loop();
+    }
   }
 }
 
@@ -36,6 +51,6 @@ uint8_t MachineConfig::getMachineCount() {
   return MACHINE_COUNT;
 }
 
-const Machine& MachineConfig::getMachine(uint8_t index) {
+Machine& MachineConfig::getMachine(uint8_t index) {
   return machines[index];
 }

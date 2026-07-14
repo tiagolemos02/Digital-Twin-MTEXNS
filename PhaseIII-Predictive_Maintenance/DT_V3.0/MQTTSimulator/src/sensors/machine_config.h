@@ -2,21 +2,19 @@
 #define MACHINE_CONFIG_H
 
 #include <Arduino.h>
-
-struct Machine {
-  const char* id;
-};
+#include "machine_state.h"
 
 class MachineConfig {
 private:
-  static const Machine machines[];
+  static Machine machines[];
   static const uint8_t MACHINE_COUNT;
   
 public:
+  static void initialize();
   static void publishAllMachines();
-  static void publishMachine(const Machine& machine);
+  static void publishMachine(Machine& machine, const String& heartbeat, bool hasValidHeartbeat);
   static uint8_t getMachineCount();
-  static const Machine& getMachine(uint8_t index);
+  static Machine& getMachine(uint8_t index);
 };
 
 #endif

@@ -7,11 +7,12 @@ PubSubClient MQTTManager::mqttClient(wifiClient);
 
 void MQTTManager::initialize() {
   mqttClient.setServer(MQTT_SERVER, MQTT_PORT);
+  mqttClient.setBufferSize(MQTT_BUFFER_SIZE);
 }
 
 void MQTTManager::connect() {
   while (!mqttClient.connected()) {
-    Serial.print("MQTT: connecting… ");
+    Serial.print("MQTT: connecting... ");
     
     // Generate unique client ID
     String clientId = "ESP32-Sim-" + WiFiManager::getMacAddress();
@@ -35,12 +36,12 @@ void MQTTManager::loop() {
 }
 
 bool MQTTManager::publish(const String& topic, const String& payload) {
-  bool success = mqttClient.publish(topic.c_str(), payload.c_str());
+  const bool success = mqttClient.publish(topic.c_str(), payload.c_str(), false);
   
   if (success) {
-    Serial.printf("▲ %s  ->  %s\n", topic.c_str(), payload.c_str());
+    Serial.printf("PUB %s -> %s\n", topic.c_str(), payload.c_str());
   } else {
-    Serial.printf("× %s  ->  %s (fail)\n", topic.c_str(), payload.c_str());
+    Serial.printf("ERR %s -> %s (publish failed)\n", topic.c_str(), payload.c_str());
   }
   
   return success;
