@@ -2,11 +2,14 @@ import { subscribeRegisteredMachines } from './inventory.js';
 import { renderMachineStatusBadge } from './machine-status.js';
 import {
   cloneLayout,
-  getMachineDisplayLabel,
   moveMachine,
   reconcileLayout,
   rotateMachine
 } from './digital-twin-layout.js';
+import {
+  getMachineDisplayLabel,
+  getMachineLabelDetails
+} from './machine-identity.js';
 
 const LAYOUT_ENDPOINT = '/bff/portal/digital-twin-layout';
 const MODEL_URL = 'models/base_basic_pbr.glb';
@@ -38,6 +41,8 @@ function queryElements() {
     live: byId('twinLiveRegion'),
     inspector: byId('twinInspector'),
     inspectorTitle: byId('twinInspectorTitle'),
+    inspectorAssetId: byId('twinInspectorAssetId'),
+    inspectorAssetWarning: byId('twinInspectorAssetWarning'),
     inspectorName: byId('twinInspectorName'),
     inspectorDeviceId: byId('twinInspectorDeviceId'),
     inspectorEntityId: byId('twinInspectorEntityId'),
@@ -71,6 +76,7 @@ async function putPersonalLayout(layout) {
     headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
     body: JSON.stringify({
       baseRevision: layout.revision,
+      factory: layout.factory,
       machines: layout.machines
     })
   });
@@ -181,12 +187,16 @@ export function initTwinViewer({ onProvisionMachine } = {}) {
       return;
     }
     const label = getMachineDisplayLabel(machine);
+    const details = getMachineLabelDetails(machine);
     elements.inspector?.classList.remove('hidden');
     elements.workspace?.classList.add('has-inspector');
     if (elements.inspectorTitle) {
-      elements.inspectorTitle.textContent = label;
+      elements.inspectorTitle.textContent = details.title;
       elements.inspectorTitle.title = label;
     }
+    if (elements.inspectorAssetId) elements.inspectorAssetId.textContent = details.assetId;
+    elements.inspectorAssetId?.classList.toggle('is-missing', details.missing);
+    elements.inspectorAssetWarning?.classList.toggle('hidden', !details.missing);
     if (elements.inspectorName) elements.inspectorName.textContent = machine.friendlyName || '—';
     if (elements.inspectorDeviceId) elements.inspectorDeviceId.textContent = machine.deviceId || '—';
     if (elements.inspectorEntityId) elements.inspectorEntityId.textContent = machine.entityName || '—';
@@ -195,7 +205,7 @@ export function initTwinViewer({ onProvisionMachine } = {}) {
     }
   }
 
-  function selectMachine(deviceId) {
+  function selectMachine(deviceId, { focus = true } = {}) {
     const machine = findMachine(deviceId);
     if (!machine) {
       closeInspector();
@@ -207,6 +217,11 @@ export function initTwinViewer({ onProvisionMachine } = {}) {
     renderInspector(machine);
     updateToolbar();
     announce(`${getMachineDisplayLabel(machine)} selected.`);
+    if (focus) {
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => sceneController?.focusMachine(deviceId));
+      });
+    }
   }
 
   function renderScene() {
@@ -322,7 +337,11 @@ export function initTwinViewer({ onProvisionMachine } = {}) {
             }
             draftLayout = result.layout;
             updateToolbar();
-            return { accepted: true, placement: draftLayout.machines[deviceId] };
+            return {
+              accepted: true,
+              placement: draftLayout.machines[deviceId],
+              layout: draftLayout
+            };
           },
           onRotate: (deviceId, rotation) => {
             if (!editing) return;
@@ -414,7 +433,7 @@ export function initTwinViewer({ onProvisionMachine } = {}) {
       return;
     }
     draftLayout = result.layout;
-    sceneController?.updatePlacement(selectedDeviceId, draftLayout.machines[selectedDeviceId]);
+    sceneController?.setLayout(draftLayout);
     announce(`${getMachineDisplayLabel(findMachine(selectedDeviceId))} moved.`);
   }
 

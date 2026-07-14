@@ -1,4 +1,7 @@
 const MAX_SEARCH_RADIUS = 10_000;
+export const LAYOUT_VERSION = 2;
+export const FACTORY_MINIMUM = Object.freeze({ minX: -3, maxX: 3, minZ: -3, maxZ: 3 });
+const FACTORY_EXPANSION_STEP = 2;
 
 export function normalizeRotation(value) {
   const parsed = Number(value);
@@ -16,15 +19,39 @@ export function normalizePlacement(placement = {}) {
   };
 }
 
+function normalizedBound(value, fallback) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) ? parsed : fallback;
+}
+
+export function expandFactoryToFit(factory = {}, placements = {}) {
+  const next = {
+    minX: Math.min(normalizedBound(factory.minX, FACTORY_MINIMUM.minX), FACTORY_MINIMUM.minX),
+    maxX: Math.max(normalizedBound(factory.maxX, FACTORY_MINIMUM.maxX), FACTORY_MINIMUM.maxX),
+    minZ: Math.min(normalizedBound(factory.minZ, FACTORY_MINIMUM.minZ), FACTORY_MINIMUM.minZ),
+    maxZ: Math.max(normalizedBound(factory.maxZ, FACTORY_MINIMUM.maxZ), FACTORY_MINIMUM.maxZ)
+  };
+
+  Object.values(placements || {}).forEach((placement) => {
+    const normalized = normalizePlacement(placement);
+    while (normalized.x < next.minX) next.minX -= FACTORY_EXPANSION_STEP;
+    while (normalized.x > next.maxX) next.maxX += FACTORY_EXPANSION_STEP;
+    while (normalized.z < next.minZ) next.minZ -= FACTORY_EXPANSION_STEP;
+    while (normalized.z > next.maxZ) next.maxZ += FACTORY_EXPANSION_STEP;
+  });
+  return next;
+}
+
 export function cloneLayout(layout = {}) {
   const machines = {};
   Object.entries(layout.machines || {}).forEach(([deviceId, placement]) => {
     machines[deviceId] = normalizePlacement(placement);
   });
   return {
-    version: 1,
+    version: LAYOUT_VERSION,
     revision: Number.isInteger(layout.revision) ? layout.revision : 0,
     updatedAt: layout.updatedAt || null,
+    factory: expandFactoryToFit(layout.factory, machines),
     machines
   };
 }
@@ -97,7 +124,7 @@ export function reconcileLayout(layout, machines = []) {
     Object.keys(current.machines).length !== Object.keys(nextMachines).length;
 
   return {
-    layout: { ...current, machines: nextMachines },
+    layout: { ...current, factory: expandFactoryToFit(current.factory, nextMachines), machines: nextMachines },
     changed,
     added,
     removed
@@ -118,6 +145,7 @@ export function moveMachine(layout, deviceId, x, z) {
     return { layout: next, moved: false, reason: 'occupied' };
   }
   next.machines[deviceId] = { ...next.machines[deviceId], x: targetX, z: targetZ };
+  next.factory = expandFactoryToFit(next.factory, next.machines);
   return { layout: next, moved: true, reason: null };
 }
 
@@ -132,21 +160,11 @@ export function rotateMachine(layout, deviceId, rotation) {
 }
 
 export function getLayoutBounds(layout, minimumRadius = 3) {
-  const placements = Object.values(layout?.machines || {});
-  if (!placements.length) {
-    return { minX: -minimumRadius, maxX: minimumRadius, minZ: -minimumRadius, maxZ: minimumRadius };
-  }
-  return placements.reduce((bounds, placement) => ({
-    minX: Math.min(bounds.minX, placement.x - 1),
-    maxX: Math.max(bounds.maxX, placement.x + 1),
-    minZ: Math.min(bounds.minZ, placement.z - 1),
-    maxZ: Math.max(bounds.maxZ, placement.z + 1)
-  }), { minX: -minimumRadius, maxX: minimumRadius, minZ: -minimumRadius, maxZ: minimumRadius });
-}
-
-export function getMachineDisplayLabel(machine = {}) {
-  const name = String(machine.friendlyName || '').trim();
-  const deviceId = String(machine.deviceId || '').trim();
-  if (name && deviceId) return `${name} (${deviceId})`;
-  return name || deviceId || String(machine.entityName || 'Machine');
+  const fallback = {
+    minX: -Math.max(minimumRadius, 3),
+    maxX: Math.max(minimumRadius, 3),
+    minZ: -Math.max(minimumRadius, 3),
+    maxZ: Math.max(minimumRadius, 3)
+  };
+  return expandFactoryToFit(layout?.factory || fallback, layout?.machines);
 }

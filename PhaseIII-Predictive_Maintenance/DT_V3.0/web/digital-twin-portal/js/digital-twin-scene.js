@@ -3,12 +3,22 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { CSS2DObject, CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { getLayoutBounds, getMachineDisplayLabel } from './digital-twin-layout.js';
+import { getLayoutBounds } from './digital-twin-layout.js';
+import { createFactoryEnvironment } from './digital-twin-environment.js';
+import {
+  getAssetPlateLabel,
+  getMachineIdentityPaletteEntry,
+  getMachineLabelDetails
+} from './machine-identity.js';
 
 const CELL_SIZE = 4.8;
 const MODEL_FOOTPRINT = 2.75;
 const MODEL_HEIGHT = 3.1;
 const FLOOR_MINIMUM_RADIUS = 3;
+const POINTER_THRESHOLD = 7;
+const TOUCH_POINTER_THRESHOLD = 13;
+const TOUCH_DRAG_DELAY_MS = 120;
+const CRITICAL_STATUS_CODES = new Set([1, 14]);
 
 function statusColor(status = {}) {
   const rgb = Array.isArray(status.rgb) ? status.rgb : [158, 158, 158];
@@ -117,7 +127,7 @@ export function createDigitalTwinScene({
   if (!host) throw new Error('A canvas host is required.');
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0xf7f7f7);
+  scene.background = new THREE.Color(0xf1f2f3);
 
   const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 1200);
   camera.position.set(15, 18, 15);
@@ -142,7 +152,7 @@ export function createDigitalTwinScene({
   controls.dampingFactor = 0.08;
   controls.screenSpacePanning = false;
   controls.minDistance = 7;
-  controls.maxDistance = 110;
+  controls.maxDistance = 180;
   controls.maxPolarAngle = Math.PI * 0.47;
   controls.target.set(0, 0, 0);
 
@@ -155,9 +165,7 @@ export function createDigitalTwinScene({
   keyLight.shadow.camera.far = 80;
   scene.add(keyLight);
 
-  const floorMaterial = new THREE.MeshStandardMaterial({ color: 0xefefef, roughness: 0.94, metalness: 0 });
-  let floor = null;
-  let grid = null;
+  const environment = createFactoryEnvironment(scene, { cellSize: CELL_SIZE });
   const interactionPlane = new THREE.Mesh(
     new THREE.PlaneGeometry(100_000, 100_000),
     new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
@@ -187,6 +195,17 @@ export function createDigitalTwinScene({
   transformControls.setSize(0.78);
   scene.add(transformControls);
 
+  const pedestalGeometry = new THREE.CylinderGeometry(1.48, 1.62, 0.22, 8);
+  const pedestalMaterials = new Map();
+  const statusRingGeometry = new THREE.RingGeometry(1.62, 1.82, 64);
+  const ringOutlineGeometry = new THREE.RingGeometry(1.82, 1.88, 64);
+  const ringOutlineMaterial = new THREE.MeshBasicMaterial({
+    color: 0x515750,
+    side: THREE.DoubleSide,
+    transparent: true,
+    opacity: 0.58
+  });
+
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
   const machineViews = new Map();
@@ -195,12 +214,14 @@ export function createDigitalTwinScene({
   let currentMachines = [];
   let currentLayout = { machines: {} };
   let selectedDeviceId = '';
+  let hoveredDeviceId = '';
   let editing = false;
   let active = false;
   let animationFrame = 0;
-  let pointerDown = null;
-  let dragState = null;
+  let pointerState = null;
+  let cameraTween = null;
   let destroyed = false;
+  const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)') || { matches: false };
 
   function resize() {
     const width = host.clientWidth;
@@ -215,9 +236,41 @@ export function createDigitalTwinScene({
   const resizeObserver = new ResizeObserver(resize);
   resizeObserver.observe(host);
 
-  function renderFrame() {
+  function updateCameraTween(timestamp) {
+    if (!cameraTween) return;
+    const progress = Math.min(1, (timestamp - cameraTween.startedAt) / cameraTween.duration);
+    const eased = 1 - Math.pow(1 - progress, 4);
+    camera.position.lerpVectors(cameraTween.startPosition, cameraTween.endPosition, eased);
+    controls.target.lerpVectors(cameraTween.startTarget, cameraTween.endTarget, eased);
+    if (progress >= 1) cameraTween = null;
+  }
+
+  function updateCriticalRings(timestamp) {
+    machineViews.forEach((view) => {
+      if (!view.critical || reducedMotion.matches) {
+        view.statusRing.material.opacity = 0.92;
+        view.statusRing.scale.setScalar(1);
+        return;
+      }
+      const pulse = (Math.sin(timestamp / 420) + 1) / 2;
+      view.statusRing.material.opacity = 0.68 + pulse * 0.27;
+      view.statusRing.scale.setScalar(1 + pulse * 0.055);
+    });
+  }
+
+  function updateLabelVisibility() {
+    machineViews.forEach((view, deviceId) => {
+      const distance = camera.position.distanceTo(view.root.position);
+      view.detailLabel.visible = deviceId === selectedDeviceId || deviceId === hoveredDeviceId || distance < 24;
+    });
+  }
+
+  function renderFrame(timestamp = performance.now()) {
     animationFrame = 0;
     if (!active) return;
+    updateCameraTween(timestamp);
+    updateCriticalRings(timestamp);
+    updateLabelVisibility();
     controls.update();
     renderer.render(scene, camera);
     labelRenderer.render(scene, camera);
@@ -231,58 +284,56 @@ export function createDigitalTwinScene({
 
   function updateFloor() {
     const bounds = getLayoutBounds(currentLayout, FLOOR_MINIMUM_RADIUS);
-    const radius = Math.max(
-      FLOOR_MINIMUM_RADIUS,
-      Math.abs(bounds.minX),
-      Math.abs(bounds.maxX),
-      Math.abs(bounds.minZ),
-      Math.abs(bounds.maxZ)
-    ) + 1;
-    const cells = radius * 2;
-    const size = cells * CELL_SIZE;
-
-    if (floor) {
-      scene.remove(floor);
-      floor.geometry.dispose();
-    }
-    if (grid) {
-      scene.remove(grid);
-      grid.geometry.dispose();
-      grid.material.dispose();
-    }
-
-    floor = new THREE.Mesh(new THREE.PlaneGeometry(size, size), floorMaterial);
-    floor.rotation.x = -Math.PI / 2;
-    floor.position.y = -0.025;
-    floor.receiveShadow = true;
-    scene.add(floor);
-
-    grid = new THREE.GridHelper(size, cells, 0xbfc2c8, 0xd7d8dc);
-    grid.position.y = 0.005;
-    grid.material.transparent = true;
-    grid.material.opacity = 0.88;
-    scene.add(grid);
+    environment.update(bounds);
   }
 
   function createLabel(machine) {
+    const plateElement = document.createElement('div');
+    plateElement.className = 'twin-machine-plate';
+    plateElement.textContent = getAssetPlateLabel(machine);
+    const plateLabel = new CSS2DObject(plateElement);
+    plateLabel.position.set(0, 0.46, 1.58);
+
     const element = document.createElement('div');
     element.className = 'twin-machine-label';
     const title = document.createElement('strong');
-    title.textContent = getMachineDisplayLabel(machine);
+    const asset = document.createElement('span');
+    asset.className = 'twin-machine-label-asset';
+    const device = document.createElement('span');
     const status = document.createElement('span');
-    status.textContent = machine.machineStatus?.name || 'Unknown';
-    element.append(title, status);
-    const label = new CSS2DObject(element);
-    label.position.set(0, MODEL_HEIGHT + 0.35, 0);
-    return { label, element, title, status };
+    status.className = 'twin-machine-label-status';
+    element.append(title, asset, device, status);
+    const detailLabel = new CSS2DObject(element);
+    detailLabel.position.set(0, MODEL_HEIGHT + 2.8, 0);
+    detailLabel.visible = false;
+    return { plateLabel, plateElement, detailLabel, element, title, asset, device, status };
+  }
+
+  function pedestalMaterial(deviceId) {
+    const palette = getMachineIdentityPaletteEntry(deviceId);
+    if (!pedestalMaterials.has(palette.hex)) {
+      pedestalMaterials.set(palette.hex, new THREE.MeshStandardMaterial({
+        color: palette.hex,
+        roughness: 0.68,
+        metalness: 0.16
+      }));
+    }
+    return pedestalMaterials.get(palette.hex);
   }
 
   function createMachineView(machine) {
     const root = new THREE.Group();
     root.userData.deviceId = machine.deviceId;
 
+    const pedestal = new THREE.Mesh(pedestalGeometry, pedestalMaterial(machine.deviceId));
+    pedestal.position.y = 0.11;
+    pedestal.castShadow = true;
+    pedestal.receiveShadow = true;
+    pedestal.userData.deviceId = machine.deviceId;
+    root.add(pedestal);
+
     const statusRing = new THREE.Mesh(
-      new THREE.RingGeometry(1.55, 1.78, 64),
+      statusRingGeometry,
       new THREE.MeshBasicMaterial({
         color: statusColor(machine.machineStatus),
         side: THREE.DoubleSide,
@@ -297,14 +348,15 @@ export function createDigitalTwinScene({
     root.add(statusRing);
 
     const ringOutline = new THREE.Mesh(
-      new THREE.RingGeometry(1.78, 1.84, 64),
-      new THREE.MeshBasicMaterial({ color: 0x515750, side: THREE.DoubleSide, transparent: true, opacity: 0.65 })
+      ringOutlineGeometry,
+      ringOutlineMaterial
     );
     ringOutline.rotation.x = -Math.PI / 2;
     ringOutline.position.y = 0.034;
     root.add(ringOutline);
 
     const model = (modelTemplate || createFallbackModel()).clone(true);
+    model.position.y += 0.22;
     model.userData.deviceId = machine.deviceId;
     model.traverse((child) => {
       if (child.isMesh) child.userData.deviceId = machine.deviceId;
@@ -312,19 +364,17 @@ export function createDigitalTwinScene({
     root.add(model);
 
     const labelParts = createLabel(machine);
-    root.add(labelParts.label);
+    root.add(labelParts.plateLabel, labelParts.detailLabel);
     scene.add(root);
 
-    return { root, model, statusRing, ringOutline, ...labelParts, machine };
+    return { root, pedestal, model, statusRing, ringOutline, ...labelParts, machine, critical: false };
   }
 
   function disposeMachineView(view) {
     scene.remove(view.root);
+    view.plateElement.remove();
     view.element.remove();
-    view.statusRing.geometry.dispose();
     view.statusRing.material.dispose();
-    view.ringOutline.geometry.dispose();
-    view.ringOutline.material.dispose();
   }
 
   function setPlacement(view, placement) {
@@ -335,9 +385,17 @@ export function createDigitalTwinScene({
 
   function updateMachineView(view, machine, placement) {
     view.machine = machine;
-    view.title.textContent = getMachineDisplayLabel(machine);
-    view.status.textContent = machine.machineStatus?.name || 'Unknown';
+    const details = getMachineLabelDetails(machine);
+    view.plateElement.textContent = getAssetPlateLabel(machine);
+    view.title.textContent = details.title;
+    view.asset.textContent = details.assetId;
+    view.asset.classList.toggle('is-missing', details.missing);
+    view.device.textContent = details.deviceId;
+    view.status.textContent = details.status;
+    const statusRgb = Array.isArray(machine.machineStatus?.rgb) ? machine.machineStatus.rgb : [158, 158, 158];
+    view.status.style.setProperty('--machine-status-color', `rgb(${statusRgb.join(', ')})`);
     view.statusRing.material.color.copy(statusColor(machine.machineStatus));
+    view.critical = CRITICAL_STATUS_CODES.has(Number(machine.machineStatus?.code));
     setPlacement(view, placement);
   }
 
@@ -369,6 +427,7 @@ export function createDigitalTwinScene({
   function updateSelection() {
     machineViews.forEach((view, deviceId) => {
       view.element.classList.toggle('is-selected', deviceId === selectedDeviceId);
+      view.plateElement.classList.toggle('is-selected', deviceId === selectedDeviceId);
     });
     const selectedView = machineViews.get(selectedDeviceId);
     selectionCorners.visible = Boolean(selectedView);
@@ -383,6 +442,22 @@ export function createDigitalTwinScene({
     } else {
       transformControls.detach();
     }
+    updateLabelVisibility();
+  }
+
+  function updateHover(deviceId) {
+    const nextDeviceId = machineViews.has(deviceId) ? deviceId : '';
+    if (hoveredDeviceId === nextDeviceId) return;
+    const previous = machineViews.get(hoveredDeviceId);
+    const next = machineViews.get(nextDeviceId);
+    previous?.element.classList.remove('is-hovered');
+    previous?.plateElement.classList.remove('is-hovered');
+    next?.element.classList.add('is-hovered');
+    next?.plateElement.classList.add('is-hovered');
+    hoveredDeviceId = nextDeviceId;
+    renderer.domElement.style.cursor = nextDeviceId ? 'pointer' : '';
+    updateLabelVisibility();
+    requestRender();
   }
 
   function updatePointer(event) {
@@ -410,31 +485,58 @@ export function createDigitalTwinScene({
   }
 
   function handlePointerDown(event) {
-    pointerDown = { x: event.clientX, y: event.clientY };
     if (transformControls.dragging || transformControls.axis) return;
     const deviceId = pickMachine(event);
-    if (!deviceId) return;
-
-    onSelect?.(deviceId);
-    if (!editing) return;
-    dragState = { deviceId };
-    controls.enabled = false;
-    renderer.domElement.setPointerCapture?.(event.pointerId);
+    pointerState = {
+      deviceId,
+      pointerId: event.pointerId,
+      pointerType: event.pointerType,
+      startedAt: performance.now(),
+      x: event.clientX,
+      y: event.clientY,
+      dragging: false,
+      lastDropAccepted: false,
+      origin: deviceId ? { ...currentLayout.machines?.[deviceId] } : null
+    };
+    if (deviceId && editing) renderer.domElement.setPointerCapture?.(event.pointerId);
   }
 
   function handlePointerMove(event) {
-    if (!dragState) return;
+    if (!pointerState?.deviceId || !editing) {
+      if (event.pointerType !== 'touch') updateHover(pickMachine(event));
+      return;
+    }
+    const threshold = pointerState.pointerType === 'touch' ? TOUCH_POINTER_THRESHOLD : POINTER_THRESHOLD;
+    const distance = Math.hypot(event.clientX - pointerState.x, event.clientY - pointerState.y);
+    if (!pointerState.dragging) {
+      if (distance < threshold) return;
+      if (
+        pointerState.pointerType === 'touch' &&
+        performance.now() - pointerState.startedAt < TOUCH_DRAG_DELAY_MS
+      ) return;
+      pointerState.dragging = true;
+      controls.enabled = false;
+      onSelect?.(pointerState.deviceId, { focus: false });
+    }
     const cell = groundCell(event);
-    if (!cell) return;
-    const result = onMove?.(dragState.deviceId, cell.x, cell.z) || { accepted: false };
+    if (!cell) {
+      pointerState.lastDropAccepted = false;
+      return;
+    }
+    const result = onMove?.(pointerState.deviceId, cell.x, cell.z) || { accepted: false };
+    pointerState.lastDropAccepted = Boolean(result.accepted);
     dropPreview.position.x = cell.x * CELL_SIZE;
     dropPreview.position.z = cell.z * CELL_SIZE;
     dropPreview.material.color.set(result.accepted ? 0x047857 : 0x9f1239);
     dropPreview.visible = true;
     if (result.accepted) {
-      const view = machineViews.get(dragState.deviceId);
+      if (result.layout) {
+        currentLayout = result.layout;
+        updateFloor();
+      }
+      const view = machineViews.get(pointerState.deviceId);
       if (view) setPlacement(view, result.placement);
-      if (selectedDeviceId === dragState.deviceId) {
+      if (selectedDeviceId === pointerState.deviceId) {
         selectionCorners.position.x = cell.x * CELL_SIZE;
         selectionCorners.position.z = cell.z * CELL_SIZE;
       }
@@ -442,23 +544,42 @@ export function createDigitalTwinScene({
   }
 
   function handlePointerUp(event) {
-    const wasDragging = Boolean(dragState);
-    dragState = null;
+    const state = pointerState;
+    pointerState = null;
     controls.enabled = !transformControls.dragging;
     dropPreview.visible = false;
     renderer.domElement.releasePointerCapture?.(event.pointerId);
 
-    if (!wasDragging && pointerDown) {
-      const distance = Math.hypot(event.clientX - pointerDown.x, event.clientY - pointerDown.y);
-      if (distance < 5 && !transformControls.axis) onSelect?.(pickMachine(event));
+    if (!state) return;
+    if (state.dragging) {
+      if ((!state.lastDropAccepted || event.type === 'pointercancel') && state.origin) {
+        const result = onMove?.(state.deviceId, state.origin.x, state.origin.z);
+        if (result?.layout) {
+          currentLayout = result.layout;
+          updateFloor();
+        }
+        const view = machineViews.get(state.deviceId);
+        if (result?.accepted && view) setPlacement(view, result.placement);
+      }
+      requestRender();
+      return;
     }
-    pointerDown = null;
+    const threshold = state.pointerType === 'touch' ? TOUCH_POINTER_THRESHOLD : POINTER_THRESHOLD;
+    const distance = Math.hypot(event.clientX - state.x, event.clientY - state.y);
+    if (event.type !== 'pointercancel' && distance < threshold && state.deviceId && !transformControls.axis) {
+      onSelect?.(state.deviceId);
+    }
+  }
+
+  function handlePointerLeave() {
+    if (!pointerState) updateHover('');
   }
 
   renderer.domElement.addEventListener('pointerdown', handlePointerDown);
   renderer.domElement.addEventListener('pointermove', handlePointerMove);
   renderer.domElement.addEventListener('pointerup', handlePointerUp);
   renderer.domElement.addEventListener('pointercancel', handlePointerUp);
+  renderer.domElement.addEventListener('pointerleave', handlePointerLeave);
 
   transformControls.addEventListener('dragging-changed', (event) => {
     controls.enabled = !event.value;
@@ -519,6 +640,16 @@ export function createDigitalTwinScene({
       else updateFloor();
     },
 
+    setLayout(layout) {
+      currentLayout = layout || { machines: {} };
+      machineViews.forEach((view, deviceId) => {
+        setPlacement(view, currentLayout.machines?.[deviceId]);
+      });
+      updateFloor();
+      updateSelection();
+      requestRender();
+    },
+
     setSelected(deviceId) {
       selectedDeviceId = machineViews.has(deviceId) ? deviceId : '';
       updateSelection();
@@ -528,6 +659,7 @@ export function createDigitalTwinScene({
     setEditing(nextEditing) {
       editing = Boolean(nextEditing);
       dropPreview.visible = false;
+      environment.setEditing(editing);
       updateSelection();
       requestRender();
     },
@@ -535,6 +667,10 @@ export function createDigitalTwinScene({
     updatePlacement(deviceId, placement) {
       const view = machineViews.get(deviceId);
       if (!view) return;
+      currentLayout = {
+        ...currentLayout,
+        machines: { ...(currentLayout.machines || {}), [deviceId]: { ...placement } }
+      };
       setPlacement(view, placement);
       if (selectedDeviceId === deviceId) {
         selectionCorners.position.x = view.root.position.x;
@@ -543,15 +679,63 @@ export function createDigitalTwinScene({
       requestRender();
     },
 
+    focusMachine(deviceId, { animate = true } = {}) {
+      const view = machineViews.get(deviceId);
+      if (!view) return;
+      const offset = camera.position.clone().sub(controls.target);
+      const endTarget = new THREE.Vector3(view.root.position.x, 0.45, view.root.position.z);
+      const endPosition = endTarget.clone().add(offset);
+      if (!animate || reducedMotion.matches) {
+        cameraTween = null;
+        camera.position.copy(endPosition);
+        controls.target.copy(endTarget);
+        controls.update();
+      } else {
+        cameraTween = {
+          startedAt: performance.now(),
+          duration: 220,
+          startPosition: camera.position.clone(),
+          endPosition,
+          startTarget: controls.target.clone(),
+          endTarget
+        };
+      }
+      requestRender();
+    },
+
     resetView() {
+      cameraTween = null;
       const bounds = getLayoutBounds(currentLayout, FLOOR_MINIMUM_RADIUS);
       const centerX = ((bounds.minX + bounds.maxX) / 2) * CELL_SIZE;
       const centerZ = ((bounds.minZ + bounds.maxZ) / 2) * CELL_SIZE;
-      const span = Math.max(bounds.maxX - bounds.minX, bounds.maxZ - bounds.minZ, 6) * CELL_SIZE;
+      const verticalFov = THREE.MathUtils.degToRad(camera.fov);
+      const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * Math.max(camera.aspect, 0.1));
+      const viewDirection = new THREE.Vector3(0.64, 0.82, 0.64).normalize();
+      const right = new THREE.Vector3().crossVectors(viewDirection, camera.up).normalize();
+      const viewUp = new THREE.Vector3().crossVectors(right, viewDirection).normalize();
+      const floorMinX = (bounds.minX - 1.5) * CELL_SIZE;
+      const floorMaxX = (bounds.maxX + 1.5) * CELL_SIZE;
+      const floorMinZ = (bounds.minZ - 1.5) * CELL_SIZE;
+      const floorMaxZ = (bounds.maxZ + 1.5) * CELL_SIZE;
+      let distance = 0;
+      [0, 2.6].forEach((height) => {
+        [floorMinX, floorMaxX].forEach((x) => {
+          [floorMinZ, floorMaxZ].forEach((z) => {
+            const corner = new THREE.Vector3(x - centerX, height, z - centerZ);
+            const depthOffset = corner.dot(viewDirection);
+            distance = Math.max(
+              distance,
+              depthOffset + Math.abs(corner.dot(right)) / Math.tan(horizontalFov / 2),
+              depthOffset + Math.abs(corner.dot(viewUp)) / Math.tan(verticalFov / 2)
+            );
+          });
+        });
+      });
+      distance *= 0.9;
       controls.target.set(centerX, 0, centerZ);
-      camera.position.set(centerX + span * 0.55, span * 0.68, centerZ + span * 0.55);
+      camera.position.copy(controls.target).addScaledVector(viewDirection, distance);
       camera.near = 0.1;
-      camera.far = Math.max(1200, span * 10);
+      camera.far = Math.max(1200, distance * 10);
       camera.updateProjectionMatrix();
       controls.update();
       requestRender();
@@ -567,12 +751,12 @@ export function createDigitalTwinScene({
       machineViews.forEach(disposeMachineView);
       machineViews.clear();
       if (modelTemplate) disposeObjectResources(modelTemplate);
-      if (floor) floor.geometry.dispose();
-      floorMaterial.dispose();
-      if (grid) {
-        grid.geometry.dispose();
-        grid.material.dispose();
-      }
+      environment.destroy();
+      pedestalGeometry.dispose();
+      pedestalMaterials.forEach((material) => material.dispose());
+      statusRingGeometry.dispose();
+      ringOutlineGeometry.dispose();
+      ringOutlineMaterial.dispose();
       interactionPlane.geometry.dispose();
       interactionPlane.material.dispose();
       selectionCorners.geometry.dispose();
@@ -584,6 +768,7 @@ export function createDigitalTwinScene({
       renderer.domElement.removeEventListener('pointermove', handlePointerMove);
       renderer.domElement.removeEventListener('pointerup', handlePointerUp);
       renderer.domElement.removeEventListener('pointercancel', handlePointerUp);
+      renderer.domElement.removeEventListener('pointerleave', handlePointerLeave);
       renderer.domElement.remove();
       labelRenderer.domElement.remove();
     }

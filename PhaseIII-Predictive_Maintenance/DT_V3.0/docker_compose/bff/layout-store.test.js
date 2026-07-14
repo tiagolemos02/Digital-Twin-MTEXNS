@@ -14,9 +14,26 @@ test("normalizes rotation and preserves integer grid coordinates", () => {
   assert.deepEqual(normalizeLayout({
     machines: { press: { x: -2, z: 4, rotation: 725.1254 } }
   }), {
-    version: 1,
+    version: 2,
+    factory: { minX: -3, maxX: 3, minZ: -3, maxZ: 5 },
     machines: { press: { x: -2, z: 4, rotation: 5.125 } }
   });
+});
+
+test("migrates layouts without factory bounds and expands in two-cell modules", () => {
+  const normalized = normalizeLayout({
+    version: 1,
+    machines: { press: { x: 6, z: -4, rotation: 0 } }
+  });
+  assert.equal(normalized.version, 2);
+  assert.deepEqual(normalized.factory, { minX: -3, maxX: 7, minZ: -5, maxZ: 3 });
+});
+
+test("rejects inverted factory bounds", () => {
+  assert.throws(
+    () => normalizeLayout({ factory: { minX: 4, maxX: 2, minZ: -3, maxZ: 3 }, machines: {} }),
+    LayoutValidationError
+  );
 });
 
 test("rejects invalid coordinates and occupied cells", () => {

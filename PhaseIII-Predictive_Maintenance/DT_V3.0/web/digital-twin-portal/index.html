@@ -632,13 +632,33 @@
                       />
                     </div>
                     <div>
-                      <label for="machineModel" class="block text-sm font-medium text-gray-700 mb-1">Model / Asset ID</label>
+                      <div class="flex items-center justify-between mb-1">
+                        <label for="machineAssetId" class="block text-sm font-medium text-gray-700">Asset ID</label>
+                        <button
+                          type="button"
+                          id="assetIdHelpBtn"
+                          class="asset-id-help-button"
+                          aria-haspopup="dialog"
+                          aria-controls="assetIdHelpModal"
+                        >
+                          <i class="fas fa-circle-info" aria-hidden="true"></i><span>Help</span>
+                        </button>
+                      </div>
                       <input
                         type="text"
-                        id="machineModel"
+                        id="machineAssetId"
                         class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                         placeholder="e.g. HP-2000"
+                        minlength="2"
+                        maxlength="20"
+                        pattern="[A-Za-z0-9_-]+"
+                        autocomplete="off"
+                        autocapitalize="off"
+                        spellcheck="false"
+                        aria-describedby="assetIdRulesSummary"
+                        required
                       />
+                      <p id="assetIdRulesSummary" class="mt-1 text-xs text-gray-500">2–20 characters: letters, numbers, hyphens, or underscores.</p>
                     </div>
                     <div>
                       <label for="machineStatus" class="block text-sm font-medium text-gray-700 mb-1">Status tag</label>
@@ -1263,10 +1283,15 @@
               <section class="twin-inspector-section" aria-labelledby="twinIdentityHeading">
                 <h4 id="twinIdentityHeading">Identity</h4>
                 <dl class="twin-identity-list">
+                  <div><dt>Asset ID</dt><dd id="twinInspectorAssetId">—</dd></div>
                   <div><dt>Machine name</dt><dd id="twinInspectorName">—</dd></div>
                   <div><dt>Device ID</dt><dd id="twinInspectorDeviceId">—</dd></div>
                   <div><dt>Entity ID</dt><dd id="twinInspectorEntityId">—</dd></div>
                 </dl>
+                <p id="twinInspectorAssetWarning" class="twin-asset-warning hidden">
+                  <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
+                  <span>Asset ID missing. Add it from Edit Machine.</span>
+                </p>
               </section>
 
               <section class="twin-inspector-section" aria-labelledby="twinStatusHeading">
@@ -1715,6 +1740,63 @@
       </div>
     </div>
 
+    <div
+      id="assetIdHelpModal"
+      class="asset-id-modal fixed inset-0 bg-gray-900/60 hidden items-center justify-center p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="assetIdHelpTitle"
+    >
+      <div class="asset-id-help-dialog" tabindex="-1">
+        <div class="flex items-center justify-between gap-4 mb-3">
+          <h3 id="assetIdHelpTitle" class="text-lg font-semibold text-gray-800">Asset ID help</h3>
+          <button id="assetIdHelpClose" type="button" class="twin-icon-button" aria-label="Close Asset ID help">
+            <i class="fas fa-xmark" aria-hidden="true"></i>
+          </button>
+        </div>
+        <p class="text-sm text-gray-700 mb-4">
+          The Asset ID is the stable identifier printed on the machine plate in the 3D factory.
+        </p>
+        <dl class="asset-id-term-list">
+          <div><dt>Asset ID</dt><dd>Short operational identifier, such as <code>HP-2000</code>.</dd></div>
+          <div><dt>Machine Name</dt><dd>Optional human-readable name, such as Hydraulic Press 01.</dd></div>
+          <div><dt>Device ID</dt><dd>Technical identifier used to provision and connect the device.</dd></div>
+        </dl>
+        <h4 class="text-sm font-semibold text-gray-800 mt-5 mb-2">Rules</h4>
+        <ul class="list-disc pl-5 text-sm text-gray-700 space-y-1">
+          <li>Required and unique among the machines visible in the portal.</li>
+          <li>Between 2 and 20 characters.</li>
+          <li>Letters, numbers, hyphens, and underscores only.</li>
+          <li>No spaces; uniqueness is checked without case sensitivity.</li>
+        </ul>
+        <div class="asset-id-examples">
+          <div><strong>Valid</strong><code>HP-2000</code><code>CNC_04</code><code>LINE3-PRESS</code></div>
+          <div><strong>Invalid</strong><code>HP 2000</code><code>A</code><code>PRESS#04</code></div>
+        </div>
+      </div>
+    </div>
+
+    <div
+      id="assetIdChangeModal"
+      class="asset-id-modal fixed inset-0 bg-gray-900/60 hidden items-center justify-center p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="assetIdChangeTitle"
+    >
+      <div class="asset-id-change-dialog" tabindex="-1">
+        <h3 id="assetIdChangeTitle" class="text-lg font-semibold text-gray-800">Confirm Asset ID change</h3>
+        <p class="mt-2 text-sm text-gray-700">This changes the identifier shown on the factory map.</p>
+        <dl class="asset-id-change-values">
+          <div><dt>Previous</dt><dd id="assetIdChangePrevious">—</dd></div>
+          <div><dt>New</dt><dd id="assetIdChangeNext">—</dd></div>
+        </dl>
+        <div class="mt-5 flex justify-end gap-2">
+          <button id="assetIdChangeCancel" type="button" class="twin-secondary-button">Cancel</button>
+          <button id="assetIdChangeConfirm" type="button" class="twin-primary-button">Confirm change</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Edit Machine Modal -->
     <div id="editMachineModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50 p-4">
       <div class="bg-white rounded-lg shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto p-6">
@@ -1749,10 +1831,23 @@
               placeholder="e.g. Hydraulic Press 01" />
           </div>
           <div>
-            <label for="editMachineModel" class="block text-sm font-medium text-gray-700 mb-1">Model / Asset ID</label>
-            <input type="text" id="editMachineModel"
+            <div class="flex items-center justify-between mb-1">
+              <label for="editMachineAssetId" class="block text-sm font-medium text-gray-700">Asset ID</label>
+              <button
+                type="button"
+                id="editAssetIdHelpBtn"
+                class="asset-id-help-button"
+                aria-haspopup="dialog"
+                aria-controls="assetIdHelpModal"
+              >
+                <i class="fas fa-circle-info" aria-hidden="true"></i><span>Help</span>
+              </button>
+            </div>
+            <input type="text" id="editMachineAssetId"
               class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-              placeholder="e.g. HP-2000" />
+              placeholder="e.g. HP-2000" minlength="2" maxlength="20" pattern="[A-Za-z0-9_-]+"
+              autocomplete="off" autocapitalize="off" spellcheck="false" required />
+            <p id="editMachineLegacyAssetHint" class="mt-1 text-xs text-amber-700 hidden"></p>
           </div>
           <div class="space-y-4">
             <!-- Telemetry Attributes -->

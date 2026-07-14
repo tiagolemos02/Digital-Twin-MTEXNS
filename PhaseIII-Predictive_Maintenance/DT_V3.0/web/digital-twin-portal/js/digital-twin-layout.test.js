@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  cloneLayout,
+  expandFactoryToFit,
   findFirstFreePlacement,
-  getMachineDisplayLabel,
+  getLayoutBounds,
   moveMachine,
   normalizeRotation,
   reconcileLayout,
@@ -43,7 +45,20 @@ test('supports free rotation and normalizes the persisted angle', () => {
   assert.equal(result.layout.machines.a.rotation, 1.5);
 });
 
-test('uses the requested machine-name fallback', () => {
-  assert.equal(getMachineDisplayLabel({ friendlyName: 'Press', deviceId: 'device-1' }), 'Press (device-1)');
-  assert.equal(getMachineDisplayLabel({ deviceId: 'device-1' }), 'device-1');
+test('migrates version 1 layouts to stable version 2 factory bounds', () => {
+  const migrated = cloneLayout({ version: 1, machines: { press: { x: 4, z: 0, rotation: 0 } } });
+  assert.equal(migrated.version, 2);
+  assert.deepEqual(migrated.factory, { minX: -3, maxX: 5, minZ: -3, maxZ: 3 });
+  assert.deepEqual(getLayoutBounds(migrated), migrated.factory);
+});
+
+test('expands the factory in two-cell modules and never shrinks it', () => {
+  const expanded = expandFactoryToFit(
+    { minX: -7, maxX: 5, minZ: -3, maxZ: 3 },
+    { press: { x: 0, z: 6 } }
+  );
+  assert.deepEqual(expanded, { minX: -7, maxX: 5, minZ: -3, maxZ: 7 });
+
+  const moved = moveMachine({ factory: expanded, machines: { press: { x: 0, z: 6 } } }, 'press', 0, 0);
+  assert.deepEqual(moved.layout.factory, expanded);
 });

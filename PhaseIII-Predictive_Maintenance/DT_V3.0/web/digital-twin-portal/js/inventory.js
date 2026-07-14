@@ -12,7 +12,7 @@ import {
   machineForm,
   machineDeviceId,
   machineName,
-  machineModel,
+  machineAssetId,
   machineDescription,
   machineServiceGroup,
   machineStatus,
@@ -71,6 +71,11 @@ import {
   renderMachineStatusOptions
 } from './machine-status.js';
 import { formatResponseError, formatThrownError } from './error-messages.js';
+import {
+  findAssetIdConflict,
+  resolveAssetIdentity,
+  validateAssetId
+} from './machine-identity.js';
 
 let serviceGroups = [];
 let machines = [];
@@ -140,6 +145,10 @@ function setLocalRegisteredMachineMetadata(nextMachines = []) {
         entityType: machine.entityType || ENTITY_TYPE,
         friendlyName: machine.friendlyName || '',
         model: machine.model || '',
+        assetId: machine.assetId || '',
+        assetIdSource: machine.assetIdSource || '',
+        assetIdMissing: Boolean(machine.assetIdMissing),
+        assetPlateLabel: machine.assetPlateLabel || '',
         notes: machine.notes || '',
         attributes: normalizeTelemetryMetadata(machine.attributes)
       }));
@@ -193,7 +202,7 @@ function notifyRegisteredMachines() {
 }
 
 const SYSTEM_STATIC_ATTR_NAMES = new Set([
-  'friendlyName', 'model', 'notes', 'operationalStatus',
+  'friendlyName', 'assetId', 'asset_id', 'assetID', 'model', 'notes', 'operationalStatus',
   'machineStatusPlaceholderCode', 'machineStatusPlaceholderName',
   'serviceGroupKey', 'serviceGroupResource', 'serviceGroupApikey',
   'serviceGroupFiware', 'serviceGroupSubservice',
@@ -318,6 +327,7 @@ export function initInventory() {
   staticAttributeAutoList?.addEventListener('click', handleStaticAttributeListClick);
   setupMachineStatusControls();
   setupMachinePayloadPreview();
+  initAssetIdDialogs();
 
   machineServiceGroup?.addEventListener('change', handleServiceGroupPickerChange);
   deviceIdPickerToggle?.addEventListener('click', () => {
@@ -731,6 +741,10 @@ function handleAddStaticAttribute(event) {
 
   if (!name || !type || !value) {
     showMessage(machineMsg, 'Provide name, type, and value for the static attribute.');
+    return;
+  }
+  if (SYSTEM_STATIC_ATTR_NAMES.has(name)) {
+    showMessage(machineMsg, `${name} is managed by the portal and cannot be added as a custom attribute.`);
     return;
   }
 
@@ -1208,7 +1222,7 @@ function buildMachineRegistrationDraft({ showErrors = true, validateDuplicate = 
 
   const deviceId = machineDeviceId?.value.trim() || '';
   const friendlyName = machineName?.value.trim() || '';
-  const model = machineModel?.value.trim() || '';
+  const assetValidation = validateAssetId(machineAssetId?.value);
   const description = machineDescription?.value.trim() || '';
   const selectedServiceKey = machineServiceGroup?.value || '';
   const statusPlaceholder = getSelectedMachineStatusPlaceholder(machineStatus);
@@ -1232,6 +1246,23 @@ function buildMachineRegistrationDraft({ showErrors = true, validateDuplicate = 
     return { ready: false, message };
   }
 
+  if (!assetValidation.valid) {
+    machineAssetId?.setCustomValidity(assetValidation.error);
+    if (showErrors) showMessage(machineMsg, assetValidation.error);
+    return { ready: false, message: assetValidation.error };
+  }
+  machineAssetId?.setCustomValidity('');
+
+  const assetConflict = validateDuplicate
+    ? findAssetIdConflict(getVisibleMachines(), assetValidation.value)
+    : null;
+  if (assetConflict) {
+    const message = `Asset ID ${assetValidation.value} is already assigned to ${assetConflict.deviceId}.`;
+    machineAssetId?.setCustomValidity(message);
+    if (showErrors) showMessage(machineMsg, message);
+    return { ready: false, message };
+  }
+
   if (validateDuplicate && getPortalRegisteredDeviceIds().has(deviceId)) {
     const message = 'This device is already registered — it appears in Machines in Use.';
     if (showErrors) showMessage(machineMsg, message);
@@ -1250,7 +1281,7 @@ function buildMachineRegistrationDraft({ showErrors = true, validateDuplicate = 
 
   const defaultStaticAttributes = buildDefaultStaticAttributes({
     friendlyName,
-    model,
+    assetId: assetValidation.value,
     description,
     statusPlaceholder,
     serviceKey: targetService.key,
@@ -1266,6 +1297,12 @@ function buildMachineRegistrationDraft({ showErrors = true, validateDuplicate = 
       ready: false,
       message: 'Fix the static attributes JSON before reviewing the payload.'
     };
+  }
+  const reservedAttribute = customStaticAttributes.find((attr) => SYSTEM_STATIC_ATTR_NAMES.has(attr?.name));
+  if (reservedAttribute) {
+    const message = `${reservedAttribute.name} is managed by the portal and cannot be supplied as a custom attribute.`;
+    if (showErrors) showMessage(machineMsg, message);
+    return { ready: false, message };
   }
   const staticAttributes = [...defaultStaticAttributes, ...customStaticAttributes];
 
@@ -1491,7 +1528,9 @@ function renderMachines() {
 
         const deviceMetaParts = [];
         if (machine.model) deviceMetaParts.push(machine.model);
-        if (machine.assetId) deviceMetaParts.push(machine.assetId);
+        if (machine.assetId && !machine.assetIdMissing && machine.assetId !== machine.model) {
+          deviceMetaParts.push(machine.assetId);
+        }
         const deviceMeta = deviceMetaParts.join(' / ');
 
         if (machine.model) {
@@ -1550,6 +1589,11 @@ function renderMachines() {
             ${
               deviceMeta
                 ? `<div class="text-xs text-gray-500">${escapeHtml(deviceMeta)}</div>`
+                : ''
+            }
+            ${
+              machine.assetIdMissing
+                ? '<span class="machine-asset-missing"><i class="fas fa-triangle-exclamation" aria-hidden="true"></i>Asset ID missing</span>'
                 : ''
             }
           </td>
@@ -1922,7 +1966,7 @@ function buildPortalTelemetryStaticAttribute(attributes = []) {
  */
 function buildDefaultStaticAttributes({
   friendlyName,
-  model,
+  assetId,
   description,
   statusPlaceholder = DEFAULT_MACHINE_STATUS,
   serviceKey = '',
@@ -1937,8 +1981,8 @@ function buildDefaultStaticAttributes({
   if (friendlyName) {
     attrs.push({ name: 'friendlyName', type: 'Text', value: friendlyName });
   }
-  if (model) {
-    attrs.push({ name: 'model', type: 'Text', value: model });
+  if (assetId) {
+    attrs.push({ name: 'assetId', type: 'Text', value: assetId });
   }
   if (description) {
     attrs.push({ name: 'notes', type: 'Text', value: description });
@@ -1965,6 +2009,13 @@ function buildDefaultStaticAttributes({
   attrs.push(buildPortalTelemetryStaticAttribute(telemetryAttributes));
 
   return attrs;
+}
+
+function getLegacyIdentityStaticAttributes(machine) {
+  const legacyNames = new Set(['model', 'asset_id', 'assetID']);
+  return (Array.isArray(machine?.staticAttributes) ? machine.staticAttributes : [])
+    .filter((attribute) => legacyNames.has(attribute?.name))
+    .map((attribute) => ({ ...attribute }));
 }
 
 /**
@@ -2067,14 +2118,13 @@ function normalizeDevice(entry = {}) {
   const entityType =
     firstNonEmpty(serviceInfo.entity_type, serviceInfo.entityType, entry.entity_type, entry.entityType) ||
     ENTITY_TYPE;
-  const assetId =
-    entry.asset_id ||
-    entry.assetId ||
-    entry.assetID ||
-    staticMap.get('asset_id') ||
-    staticMap.get('assetId') ||
-    staticMap.get('assetID') ||
-    '';
+  const assetIdentity = resolveAssetIdentity({
+    canonical: entry.assetId || staticMap.get('assetId'),
+    snakeCase: entry.asset_id || staticMap.get('asset_id'),
+    upperCase: entry.assetID || staticMap.get('assetID'),
+    legacyModel: staticMap.get('model'),
+    deviceId: entry.device_id || entry.id
+  });
   const computedServiceKey = createServiceKey({
     apikey,
     resource,
@@ -2107,7 +2157,7 @@ function normalizeDevice(entry = {}) {
     isPortalRegistered: !!storedServiceKey,
     friendlyName: staticMap.get('friendlyName') || '',
     model: staticMap.get('model') || '',
-    assetId,
+    ...assetIdentity,
     notes: staticMap.get('notes') || '',
     statusPlaceholderCode: staticMap.get('machineStatusPlaceholderCode') || '',
     statusPlaceholderName: staticMap.get('machineStatusPlaceholderName') || '',
@@ -2206,6 +2256,16 @@ function normalizeOrionEntityAsMachine(entity = {}) {
   const localTelemetry = normalizeTelemetryMetadata(localMetadata?.attributes);
   const attributes = staticTelemetry.length ? staticTelemetry : localTelemetry;
 
+  const localConfirmedAssetId = localMetadata?.assetIdMissing ? '' : localMetadata?.assetId;
+  const localLegacyAssetId = localMetadata?.assetIdMissing ? localMetadata?.assetId : '';
+  const assetIdentity = resolveAssetIdentity({
+    canonical: staticMap.get('assetId') || localConfirmedAssetId,
+    snakeCase: staticMap.get('asset_id'),
+    upperCase: staticMap.get('assetID'),
+    legacyModel: staticMap.get('model') || localMetadata?.model || localLegacyAssetId,
+    deviceId
+  });
+
   return {
     deviceId,
     entityName,
@@ -2223,7 +2283,7 @@ function normalizeOrionEntityAsMachine(entity = {}) {
     isPortalRegistered: true,
     friendlyName: asNonEmptyString(staticMap.get('friendlyName')) || asNonEmptyString(localMetadata?.friendlyName),
     model: asNonEmptyString(staticMap.get('model')) || asNonEmptyString(localMetadata?.model),
-    assetId: '',
+    ...assetIdentity,
     notes: asNonEmptyString(staticMap.get('notes')) || asNonEmptyString(localMetadata?.notes),
     statusPlaceholderCode: asNonEmptyString(staticMap.get('machineStatusPlaceholderCode')),
     statusPlaceholderName: asNonEmptyString(staticMap.get('machineStatusPlaceholderName')),
@@ -2319,8 +2379,14 @@ function mergeDuplicateDevices(devices = []) {
     if (asNonEmptyString(device.model) && !asNonEmptyString(existing.model)) {
       existing.model = device.model;
     }
-    if (asNonEmptyString(device.assetId) && !asNonEmptyString(existing.assetId)) {
+    if (
+      asNonEmptyString(device.assetId) &&
+      (!asNonEmptyString(existing.assetId) || (existing.assetIdMissing && !device.assetIdMissing))
+    ) {
       existing.assetId = device.assetId;
+      existing.assetIdSource = device.assetIdSource;
+      existing.assetIdMissing = device.assetIdMissing;
+      existing.assetPlateLabel = device.assetPlateLabel;
     }
     if (asNonEmptyString(device.notes) && !asNonEmptyString(existing.notes)) {
       existing.notes = device.notes;
@@ -2788,6 +2854,89 @@ function openModal(id) {
   el.classList.add('flex');
 }
 
+let assetIdHelpReturnFocus = null;
+
+function closeAssetIdHelp() {
+  const modal = document.getElementById('assetIdHelpModal');
+  if (!modal || modal.classList.contains('hidden')) return;
+  modal.classList.add('hidden');
+  modal.classList.remove('flex');
+  assetIdHelpReturnFocus?.focus?.();
+  assetIdHelpReturnFocus = null;
+}
+
+function openAssetIdHelp(trigger) {
+  const modal = document.getElementById('assetIdHelpModal');
+  if (!modal) return;
+  assetIdHelpReturnFocus = trigger || document.activeElement;
+  modal.classList.remove('hidden');
+  modal.classList.add('flex');
+  modal.querySelector('.asset-id-help-dialog')?.focus();
+}
+
+function initAssetIdDialogs() {
+  ['machineAssetId', 'editMachineAssetId'].forEach((id) => {
+    const input = document.getElementById(id);
+    if (!input || input.dataset.validityBound === 'true') return;
+    input.addEventListener('input', () => input.setCustomValidity(''));
+    input.dataset.validityBound = 'true';
+  });
+  ['assetIdHelpBtn', 'editAssetIdHelpBtn'].forEach((id) => {
+    const button = document.getElementById(id);
+    if (!button || button.dataset.bound === 'true') return;
+    button.addEventListener('click', () => openAssetIdHelp(button));
+    button.dataset.bound = 'true';
+  });
+  const close = document.getElementById('assetIdHelpClose');
+  if (close && close.dataset.bound !== 'true') {
+    close.addEventListener('click', closeAssetIdHelp);
+    close.dataset.bound = 'true';
+  }
+  const modal = document.getElementById('assetIdHelpModal');
+  if (modal && modal.dataset.bound !== 'true') {
+    modal.addEventListener('click', (event) => {
+      if (event.target === modal) closeAssetIdHelp();
+    });
+    modal.dataset.bound = 'true';
+  }
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') closeAssetIdHelp();
+  });
+}
+
+function confirmAssetIdChange(previousAssetId, nextAssetId) {
+  const modal = document.getElementById('assetIdChangeModal');
+  const confirm = document.getElementById('assetIdChangeConfirm');
+  const cancel = document.getElementById('assetIdChangeCancel');
+  if (!modal || !confirm || !cancel) return Promise.resolve(false);
+
+  document.getElementById('assetIdChangePrevious').textContent = previousAssetId;
+  document.getElementById('assetIdChangeNext').textContent = nextAssetId;
+  modal.classList.remove('hidden');
+  modal.classList.add('flex');
+  cancel.focus();
+
+  return new Promise((resolve) => {
+    const finish = (accepted) => {
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+      confirm.removeEventListener('click', accept);
+      cancel.removeEventListener('click', reject);
+      modal.removeEventListener('click', outside);
+      document.removeEventListener('keydown', keydown);
+      resolve(accepted);
+    };
+    const accept = () => finish(true);
+    const reject = () => finish(false);
+    const outside = (event) => { if (event.target === modal) reject(); };
+    const keydown = (event) => { if (event.key === 'Escape') reject(); };
+    confirm.addEventListener('click', accept);
+    cancel.addEventListener('click', reject);
+    modal.addEventListener('click', outside);
+    document.addEventListener('keydown', keydown);
+  });
+}
+
 function closeModal(id) {
   const el = document.getElementById(id);
   if (!el) return;
@@ -3039,8 +3188,19 @@ function populateEditMachineModal(machine) {
   setVal('editMachineOriginalDeviceId', machine.deviceId);
   setVal('editMachineDeviceId', machine.deviceId);
   setVal('editMachineName', machine.friendlyName);
-  setVal('editMachineModel', machine.model);
+  setVal('editMachineAssetId', machine.assetIdMissing ? '' : machine.assetId);
   setVal('editMachineDescription', machine.notes);
+
+  const assetInput = document.getElementById('editMachineAssetId');
+  if (assetInput) assetInput.dataset.originalAssetId = machine.assetIdMissing ? '' : machine.assetId;
+  const legacyHint = document.getElementById('editMachineLegacyAssetHint');
+  if (legacyHint) {
+    const legacyValue = machine.assetIdMissing ? (machine.assetId || machine.model || '') : '';
+    legacyHint.textContent = legacyValue
+      ? `Legacy model value: ${legacyValue}. Enter and confirm a valid Asset ID.`
+      : 'This machine does not have an Asset ID yet.';
+    legacyHint.classList.toggle('hidden', !machine.assetIdMissing);
+  }
 
   const statusEl = document.getElementById('editMachineStatus');
   if (statusEl) {
@@ -3213,6 +3373,10 @@ function handleEditAddStaticAttribute(event) {
     showMessage(msgEl, 'Provide name, type, and value for the static attribute.');
     return;
   }
+  if (SYSTEM_STATIC_ATTR_NAMES.has(name)) {
+    showMessage(msgEl, `${name} is managed by the portal and cannot be added as a custom attribute.`);
+    return;
+  }
   editStaticAttributeEntries.push({ name, type, value });
   renderEditStaticAttributeList();
   const clearId = (id) => { const el = document.getElementById(id); if (el) el.value = ''; };
@@ -3299,12 +3463,26 @@ async function handleEditMachineSubmit(event) {
 
   const deviceId = document.getElementById('editMachineOriginalDeviceId')?.value || '';
   const friendlyName = (document.getElementById('editMachineName')?.value || '').trim();
-  const model = (document.getElementById('editMachineModel')?.value || '').trim();
+  const assetInput = document.getElementById('editMachineAssetId');
+  const assetValidation = validateAssetId(assetInput?.value);
   const description = (document.getElementById('editMachineDescription')?.value || '').trim();
   const statusPlaceholder = getSelectedMachineStatusPlaceholder(document.getElementById('editMachineStatus'));
   const selectedServiceKey = document.getElementById('editMachineServiceGroup')?.value || '';
 
   if (!deviceId) { showMessage(msgEl, 'Device ID is missing.'); return; }
+  if (!assetValidation.valid) {
+    assetInput?.setCustomValidity(assetValidation.error);
+    showMessage(msgEl, assetValidation.error);
+    return;
+  }
+  assetInput?.setCustomValidity('');
+  const assetConflict = findAssetIdConflict(getVisibleMachines(), assetValidation.value, deviceId);
+  if (assetConflict) {
+    const message = `Asset ID ${assetValidation.value} is already assigned to ${assetConflict.deviceId}.`;
+    assetInput?.setCustomValidity(message);
+    showMessage(msgEl, message);
+    return;
+  }
   if (!selectedServiceKey) {
     showMessage(msgEl, 'Select the service group responsible for this machine.');
     return;
@@ -3324,7 +3502,7 @@ async function handleEditMachineSubmit(event) {
 
   const defaultStaticAttributes = buildDefaultStaticAttributes({
     friendlyName,
-    model,
+    assetId: assetValidation.value,
     description,
     statusPlaceholder,
     serviceKey: targetService.key,
@@ -3338,7 +3516,18 @@ async function handleEditMachineSubmit(event) {
   const customStaticAttributes = collectEditStaticAttributesInput();
   if (customStaticAttributes === null) return;
 
-  const staticAttributes = [...defaultStaticAttributes, ...customStaticAttributes];
+  const reservedAttribute = customStaticAttributes.find((attr) => SYSTEM_STATIC_ATTR_NAMES.has(attr?.name));
+  if (reservedAttribute) {
+    showMessage(msgEl, `${reservedAttribute.name} is managed by the portal and cannot be supplied as a custom attribute.`);
+    return;
+  }
+
+  const originalMachine = getVisibleMachines().find((machine) => machine.deviceId === deviceId);
+  const staticAttributes = [
+    ...defaultStaticAttributes,
+    ...getLegacyIdentityStaticAttributes(originalMachine),
+    ...customStaticAttributes
+  ];
 
   const payload = {
     entity_name: entityName,
@@ -3349,6 +3538,15 @@ async function handleEditMachineSubmit(event) {
     commands: [],
     static_attributes: staticAttributes
   };
+
+  const originalAssetId = assetInput?.dataset.originalAssetId || '';
+  if (originalAssetId && originalAssetId !== assetValidation.value) {
+    const accepted = await confirmAssetIdChange(originalAssetId, assetValidation.value);
+    if (!accepted) {
+      assetInput?.focus();
+      return;
+    }
+  }
 
   const submitBtn = document.getElementById('editMachineForm')?.querySelector('button[type="submit"]');
   const originalText = submitBtn?.textContent;

@@ -2,9 +2,12 @@ import crypto from "crypto";
 import { promises as fs } from "fs";
 import path from "path";
 
-const STORE_VERSION = 1;
+const DATABASE_VERSION = 1;
+const LAYOUT_VERSION = 2;
 const MAX_MACHINES_PER_LAYOUT = 500;
 const MAX_GRID_COORDINATE = 10_000;
+const FACTORY_MINIMUM = Object.freeze({ minX: -3, maxX: 3, minZ: -3, maxZ: 3 });
+const FACTORY_EXPANSION_STEP = 2;
 
 export class LayoutValidationError extends Error {
   constructor(message) {
@@ -75,15 +78,47 @@ export function normalizeLayout(candidate = {}) {
     }]);
   }
 
-  return { version: STORE_VERSION, machines: Object.fromEntries(normalizedEntries) };
+  const machines = Object.fromEntries(normalizedEntries);
+  const rawFactory = candidate?.factory;
+  const factory = rawFactory == null
+    ? { ...FACTORY_MINIMUM }
+    : {
+        minX: normalizeCoordinate(rawFactory.minX, "factory.minX"),
+        maxX: normalizeCoordinate(rawFactory.maxX, "factory.maxX"),
+        minZ: normalizeCoordinate(rawFactory.minZ, "factory.minZ"),
+        maxZ: normalizeCoordinate(rawFactory.maxZ, "factory.maxZ")
+      };
+
+  if (factory.minX > factory.maxX || factory.minZ > factory.maxZ) {
+    throw new LayoutValidationError("factory minimum bounds must not exceed maximum bounds.");
+  }
+  factory.minX = Math.min(factory.minX, FACTORY_MINIMUM.minX);
+  factory.maxX = Math.max(factory.maxX, FACTORY_MINIMUM.maxX);
+  factory.minZ = Math.min(factory.minZ, FACTORY_MINIMUM.minZ);
+  factory.maxZ = Math.max(factory.maxZ, FACTORY_MINIMUM.maxZ);
+
+  Object.values(machines).forEach((placement) => {
+    while (placement.x < factory.minX) factory.minX -= FACTORY_EXPANSION_STEP;
+    while (placement.x > factory.maxX) factory.maxX += FACTORY_EXPANSION_STEP;
+    while (placement.z < factory.minZ) factory.minZ -= FACTORY_EXPANSION_STEP;
+    while (placement.z > factory.maxZ) factory.maxZ += FACTORY_EXPANSION_STEP;
+  });
+
+  return { version: LAYOUT_VERSION, factory, machines };
 }
 
 function emptyDatabase() {
-  return { version: STORE_VERSION, users: {} };
+  return { version: DATABASE_VERSION, users: {} };
 }
 
 function emptyLayout() {
-  return { version: STORE_VERSION, revision: 0, updatedAt: null, machines: {} };
+  return {
+    version: LAYOUT_VERSION,
+    revision: 0,
+    updatedAt: null,
+    factory: { ...FACTORY_MINIMUM },
+    machines: {}
+  };
 }
 
 function userStorageKey(userId) {
@@ -94,7 +129,7 @@ async function readDatabase(filePath) {
   try {
     const raw = await fs.readFile(filePath, "utf8");
     const parsed = JSON.parse(raw);
-    if (parsed?.version !== STORE_VERSION || !parsed?.users || typeof parsed.users !== "object") {
+    if (parsed?.version !== DATABASE_VERSION || !parsed?.users || typeof parsed.users !== "object") {
       throw new Error("Unsupported digital-twin layout store format.");
     }
     return parsed;

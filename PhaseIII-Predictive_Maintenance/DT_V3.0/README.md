@@ -1,10 +1,10 @@
-# Phase III - Predictive Maintenance v0.5
+# Phase III - Predictive Maintenance v0.6
 
 **This phase starts the predictive maintenance roadmap by adding the historical telemetry foundation required for later machine learning and tightening the secured operator portal around that foundation.**
 
-Version `0.5` adds a personal multi-machine 3D factory layout to the secured portal. Registered machines now appear automatically on an interactive grid, each user can arrange the factory for their own account, and selecting a machine preserves the existing detailed 3D inspection experience alongside identity, status, and predictive-maintenance availability.
+Version `0.6` strengthens the personal multi-machine 3D factory introduced in v0.5. Machines can now be selected directly on the map, each asset receives a stable visual identity, the map is presented as a procedural MTEX NS factory environment, and machine provisioning uses a required, validated Asset ID.
 
-Version `0.5` still does **not** train or run ML predictions. It extends the operational digital-twin experience while keeping layout metadata separate from Orion, IoT Agent, and the rest of FIWARE.
+Version `0.6` still does **not** train or run ML predictions. The inspector continues to show `Sem previsão disponível` until prediction data exists, and personal layout metadata remains separate from Orion, IoT Agent, and the rest of FIWARE.
 
 The existing Phase II security model remains the baseline: browser traffic goes through the portal, PEP Proxy, API Gateway, Keyrock, and AuthzForce policies. CrateDB and QuantumLeap are intentionally kept internal-only.
 
@@ -14,11 +14,42 @@ The existing Phase II security model remains the baseline: browser traffic goes 
 
 **Phase**: `Phase III - Predictive Maintenance`
 
-**Version**: `0.5`
+**Version**: `0.6`
 
 **Author**: Tiago Lemos
 
 **Licence**: MIT
+
+---
+
+## Scope of v0.6
+
+### Implemented
+
+- Direct first-click machine selection on the 3D map, while retaining the machine selector as an equivalent navigation path
+- Camera focus that recenters the selected asset without replacing the operator's current orbit angle or zoom distance
+- Stable per-machine visual identity derived from Asset ID, using a restrained deterministic color palette and an identifying pedestal while preserving the original GLB materials
+- Compact always-visible Asset ID plates and expanded identity/status labels for selected or hovered machines
+- Independent status visualization, including status rings, status dots, and reduced-motion-aware pulsing only for active processing states
+- Procedural MTEX NS factory environment with a slab floor, grid, safety aisle, perimeter walls and fencing, loading gate, cabinets, pallets, barriers, pipework, and signage
+- Edit-layout grid visibility only while editing, with mouse/touch drag thresholds, invalid-drop rollback, collision prevention, and explicit save/cancel behavior
+- Version 2 personal layout metadata with persisted factory bounds and modular two-cell expansion that never shrinks an existing factory
+- Required Asset ID in Add Machine and Edit Machine, stored canonically as the static `assetId` attribute
+- Asset ID validation, case-insensitive uniqueness checks, contextual help, examples, inline errors, and explicit confirmation before changing an existing identity
+- Backward-compatible reading of `assetId`, `asset_id`, `assetID`, and legacy `model` values without silently rewriting existing machine records
+- Missing-Asset-ID warnings and Device ID fallback plates for legacy machines
+- Responsive desktop/mobile framing and reduced-motion behavior for camera transitions and status animation
+
+### Not Implemented Yet
+
+- Predictive-maintenance forecasts or telemetry inside the machine inspector
+- ML model training
+- Anomaly detection
+- Remaining useful life prediction
+- Prediction tables in CrateDB
+- Writing prediction results back to Orion
+
+This version makes the factory map a reliable operational navigation surface: identity is visible and stable, status remains semantically separate, and the surrounding factory gives spatial context without introducing additional 3D asset dependencies.
 
 ---
 
@@ -153,6 +184,107 @@ This phase deliberately separates **data collection** from **prediction**. Predi
 
 ---
 
+## New in v0.6
+
+### ✅ Direct selection and camera continuity
+
+What changed:
+
+- A machine can be selected with the first click or tap on its 3D model, pedestal, or status ring.
+- The existing machine selector remains available and follows the same selection path.
+- Pointer-down captures the target Device ID so a later camera or pointer movement does not require a second raycast to identify the machine.
+- Dragging uses separate mouse and touch thresholds, while an ordinary click remains a selection action.
+- Selecting a machine opens the inspector and recenters the map camera while preserving the current viewing angle and zoom distance.
+- Empty-floor clicks do not change the selection.
+
+Why this was done:
+
+- The map itself is the primary navigation surface and should not require a preparatory dropdown action.
+- Preserving the operator's camera context avoids disorientation when moving between nearby machines.
+- A shared selection path keeps the map, selector, labels, and inspector synchronized.
+
+---
+
+### ✅ Individual machine identity and Asset ID
+
+What changed:
+
+- **Model / Asset ID** was replaced by the required **Asset ID** field in Add Machine and Edit Machine.
+- New machines store the value as the canonical static attribute `assetId`.
+- Asset IDs are trimmed, must contain 2 to 20 ASCII letters, digits, hyphens, or underscores, and must be unique among visible machines without regard to letter case.
+- Valid examples include `CNC_04`, `LINE3-PRESS`, and `HP-2000`.
+- The information control beside the field explains the rules, examples, and distinction between Machine Name, Asset ID, and Device ID.
+- Validation is shown inline and prevents registration or saving until corrected.
+- Changing an existing Asset ID requires explicit confirmation because the value is presented as the machine's physical identity.
+- Existing records can still be read from `assetId`, `asset_id`, `assetID`, or legacy `model`; legacy aliases are preserved when editing unrelated machine data.
+- Machines without a canonical Asset ID display a warning and use Device ID on the map plate until an Asset ID is assigned.
+
+Why this was done:
+
+- Machine Name is a human-readable label and Device ID is the IoT provisioning identity; neither is a dependable short identifier for a physical asset plate.
+- A canonical, validated Asset ID gives the portal one stable source for visual identity without changing FIWARE entity IDs.
+- Compatibility prevents the v0.6 UI from breaking or silently mutating machines provisioned by earlier versions.
+
+---
+
+### ✅ Deterministic visual identity and status
+
+What changed:
+
+- Every machine receives a deterministic color derived from its Asset ID, with Device ID as the compatibility fallback.
+- Color is applied to a compact octagonal pedestal rather than recoloring the existing GLB model.
+- The same identity always produces the same color across sessions and devices.
+- Asset ID plates remain visible on the map; hover and selection add Machine Name, Asset ID, Device ID, and current status.
+- Operational state remains independent from identity color through a status ring and status dot.
+- Only active processing status codes pulse, and animation is disabled when the browser requests reduced motion.
+
+Why this was done:
+
+- Operators need to distinguish machines even while one shared 3D model is reused.
+- Keeping identity color on the pedestal preserves the source model and prevents color from being confused with machine health.
+- Text labels remain authoritative, so color is an aid rather than the only identity or status signal.
+
+---
+
+### ✅ Procedural MTEX NS factory environment
+
+What changed:
+
+- The plain grid is now a light industrial factory floor with an inset slab, subtle grid, safety aisle, walls, fences, a loading gate, cabinets, pallets, barriers, pipework, and restrained signage.
+- The environment is generated from reusable Three.js primitives and instanced meshes, without adding new GLB or image dependencies.
+- Visual weight stays around the perimeter so machines and interaction space remain unobstructed.
+- MTEX NS red is reserved for selection and safety accents, supported by charcoal, neutral gray, white, muted metal, and limited identity colors.
+- The editing grid appears only in Edit layout mode.
+- Reset view calculates a fit from the persisted factory rectangle and adapts it to desktop and mobile aspect ratios.
+
+Why this was done:
+
+- The factory needs enough physical context to read as an operational site rather than an empty 3D editor.
+- Procedural geometry keeps the scene maintainable, lightweight, and consistent as each user's factory expands.
+- Restrained decoration supports the existing portal design instead of competing with labels, machine status, or editing controls.
+
+---
+
+### ✅ Layout metadata version 2
+
+What changed:
+
+- Personal layout documents now persist explicit factory bounds alongside machine placements.
+- Existing v1 layouts are migrated in memory to v2-compatible bounds.
+- New factories start with a usable 7 by 7 grid and expand in two-cell modules on the required side.
+- Factory bounds never shrink automatically, including after machines are removed.
+- Invalid moves revert to the machine's original placement and occupied cells remain unavailable.
+
+Why this was done:
+
+- Persisted bounds keep the procedural environment and camera framing stable between sessions and devices.
+- Modular non-shrinking growth avoids noticeable factory reshaping as machines are provisioned or rearranged.
+- The metadata remains a portal concern and is not written to Orion or IoT Agent.
+
+The predictive-maintenance panel remains intentionally unchanged and displays `Sem previsão disponível` until real prediction data is integrated.
+
+---
+
 ## New in v0.5
 
 ### ✅ Personal 3D factory layout
@@ -278,10 +410,6 @@ Why this was done:
 
 - The portal should feel connected to MTEX NS without turning every panel red.
 - Dense telemetry and security screens need typography that separates headings, labels, data, and actions clearly.
-
-Example image:
-<img width="1277" height="722" alt="image" src="https://github.com/user-attachments/assets/4ee49154-422a-4979-b5e6-9299e64ed120" />
-
 
 ---
 
