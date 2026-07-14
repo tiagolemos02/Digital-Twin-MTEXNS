@@ -46,10 +46,10 @@ The authoritative topic catalogue, including exact spelling, maximums, and initi
 
 ### Heartbeat
 
-`iamalive` is generated from the ESP32 clock in Lisbon local time:
+`iamalive` is generated from the ESP32 clock in Lisbon local time. It is sent as a valid JSON string so the custom IoT Agent stores the decoded timestamp instead of converting the raw text to hexadecimal:
 
 ```text
-2026-07-14 16:42:08
+"2026-07-14 16:42:08"
 ```
 
 The clock is synchronized by NTP. If no valid time is available, the simulator continues publishing other telemetry but skips `iamalive`. It retries NTP periodically. This produces an Unknown connectivity state instead of a false heartbeat.
@@ -67,13 +67,15 @@ Temperatures, humidity, pressures, and speeds are published as decimal numbers. 
 
 ### Maintenance counters
 
-Preventive-maintenance and replacement counters are compact JSON objects. Both fields intentionally remain strings to match the source-machine examples:
+Preventive-maintenance and replacement counters use the compact `maximum/value` representation supplied by the source-machine examples. Both fields are JSON numbers, and the MQTT payload is published directly as a JSON object:
 
-```json
-{"maximum":"250","value":"10"}
+```text
+{"maximum":250,"value":10}
 ```
 
-The maximum is fixed. The value is initialized near the supplied test baseline, never decreases, and never exceeds its maximum.
+Provision these attributes as `StructuredValue` using `simulator-telemetry-mapping.json`. The maximum is fixed. The value is initialized near the supplied test baseline, never decreases, and never exceeds its maximum.
+
+The simulator does not modify or work around the IoT Agent. The current custom MQTT binding may interpret an object payload as multiple measurements instead of one structured attribute. If that occurs, correct the binding separately; do not change these counter mappings back to `Text` merely to hide the contract mismatch.
 
 ## Simulation behavior
 
@@ -128,9 +130,11 @@ The simulator reconnects to Wi-Fi and MQTT when a connection is lost. It uses on
 
 ## Portal provisioning
 
-Provision the three simulated Device IDs in the portal before relying on their telemetry. Configure each simulated machine with the attributes that you want the IoT Agent to ingest. In particular, new portal machines require the canonical heartbeat mapping where both Object ID and Name are `iamalive`.
+Provision the three simulated Device IDs in the portal before relying on their telemetry. Configure each simulated machine with the attributes that you want the IoT Agent to ingest. The custom MQTT binding extracts the attribute from `<device-id>/state/<attribute>`, so both Object ID and Name must use only the attribute suffix, without the `state/` prefix. In particular, new portal machines require the canonical heartbeat mapping where both fields are `iamalive`.
 
-This simulator does not provide or enforce a global telemetry mapping. Real machines can expose different topics and must be provisioned with their own machine-specific attribute mappings.
+For these three simulated devices, copy the complete array from `simulator-telemetry-mapping.json` into the portal's manual Telemetry Attributes field. Reuse the same array for each simulator Device ID. It keeps `iamalive` as `Text`, scalar measurements as `Number`, and all `maximum/value` objects as `StructuredValue`. The mapping is local to this simulator and does not constrain real machines.
+
+Real machines can expose different topics and must be provisioned with their own machine-specific attribute mappings.
 
 ## Source layout
 
@@ -145,6 +149,7 @@ This simulator does not provide or enforce a global telemetry mapping. Real mach
 | `src/sensors/machine_config.*` | Device IDs and per-machine publication loop |
 | `src/sensors/sensor_generators.*` | Topic catalogue, state evolution, and payload serialization |
 | `src/utils/helpers.*` | Random floating-point utility |
+| `simulator-telemetry-mapping.json` | Ready-to-paste portal telemetry mapping for the three simulated devices |
 
 ## Adding or changing a simulated machine
 

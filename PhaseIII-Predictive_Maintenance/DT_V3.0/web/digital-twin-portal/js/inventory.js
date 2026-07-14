@@ -81,6 +81,13 @@ import {
   resolveConnectivity
 } from './connectivity-status.js';
 import { validateIAmAliveMapping } from './machine-telemetry.js';
+import {
+  formatAttributeValue,
+  inferCanonicalAttributeType,
+  normalizeAttributeType,
+  normalizeAutomaticAttribute,
+  parseStaticAttributeValue
+} from './attribute-types.js';
 
 let serviceGroups = [];
 let machines = [];
@@ -677,7 +684,7 @@ function handleAddTelemetryAttribute(event) {
 
   const objectId = attributeObjectId?.value.trim() || '';
   const name = attributeName?.value.trim() || '';
-  const type = attributeType?.value.trim() || '';
+  const type = normalizeAttributeType(attributeType?.value, { preserveUnknown: false });
 
   if (!objectId || !name || !type) {
     showMessage(machineMsg, 'Provide object ID, name, and type for the telemetry attribute.');
@@ -744,7 +751,7 @@ function handleAddStaticAttribute(event) {
   }
 
   const name = staticAttributeName?.value.trim() || '';
-  const type = staticAttributeType?.value.trim() || '';
+  const type = normalizeAttributeType(staticAttributeType?.value, { preserveUnknown: false });
   const value = staticAttributeValue?.value.trim() || '';
 
   if (!name || !type || !value) {
@@ -756,7 +763,13 @@ function handleAddStaticAttribute(event) {
     return;
   }
 
-  staticAttributeEntries.push({ name, type, value });
+  const parsedValue = parseStaticAttributeValue(type, value);
+  if (!parsedValue.valid) {
+    showMessage(machineMsg, `${name}: ${parsedValue.error}`);
+    return;
+  }
+
+  staticAttributeEntries.push({ name, type: parsedValue.type, value: parsedValue.value });
   renderStaticAttributeList();
   clearStaticAttributeFields();
   updateMachinePayloadPreview();
@@ -789,7 +802,7 @@ function renderStaticAttributeList() {
       const label = [
         `<span class="font-semibold text-gray-800">${escapeHtml(attr.name)}</span>`,
         `<span class="ml-2 text-xs text-indigo-600">${escapeHtml(attr.type)}</span>`,
-        `<span class="ml-2 text-xs text-gray-500">${escapeHtml(attr.value)}</span>`
+        `<span class="ml-2 text-xs text-gray-500">${escapeHtml(formatAttributeValue(attr.value))}</span>`
       ].join('');
       return `
         <li class="px-3 py-2 flex items-center justify-between">
@@ -1899,7 +1912,7 @@ function populateApikeyFromName() {
 
 function collectTelemetryAttributes({ showErrors = true } = {}) {
   if (telemetryInputMode === 'automatic') {
-    return telemetryAttributeEntries.map((entry) => ({ ...entry }));
+    return telemetryAttributeEntries.map(normalizeAutomaticAttribute);
   }
 
   const raw = machineAttributesManual?.value.trim();
@@ -1919,9 +1932,38 @@ function collectTelemetryAttributes({ showErrors = true } = {}) {
   }
 }
 
+function validateAutomaticStaticAttributes(entries, { showErrors = true, messageElement = null } = {}) {
+  const normalizedEntries = [];
+  for (const entry of Array.isArray(entries) ? entries : []) {
+    const canonicalType = normalizeAttributeType(entry?.type, { preserveUnknown: false });
+    if (!canonicalType) {
+      normalizedEntries.push({ ...entry });
+      continue;
+    }
+
+    const parsedValue = parseStaticAttributeValue(canonicalType, entry?.value);
+    if (!parsedValue.valid) {
+      if (showErrors) {
+        const name = asNonEmptyString(entry?.name) || 'Static attribute';
+        showMessage(messageElement, `${name}: ${parsedValue.error}`);
+      }
+      return null;
+    }
+    normalizedEntries.push({
+      ...entry,
+      type: parsedValue.type,
+      value: parsedValue.value
+    });
+  }
+  return normalizedEntries;
+}
+
 function collectStaticAttributesInput({ showErrors = true } = {}) {
   if (staticAttributesInputModeState === 'automatic') {
-    return staticAttributeEntries.map((entry) => ({ ...entry }));
+    return validateAutomaticStaticAttributes(staticAttributeEntries, {
+      showErrors,
+      messageElement: machineMsg
+    });
   }
 
   const raw = machineStaticAttributesManual?.value.trim();
@@ -1946,7 +1988,7 @@ function normalizeTelemetryMetadata(attributes = []) {
     .map((attr) => ({
       name: asNonEmptyString(attr?.name),
       object_id: asNonEmptyString(attr?.object_id || attr?.objectId),
-      type: asNonEmptyString(attr?.type) || 'Text'
+      type: normalizeAttributeType(attr?.type) || 'Text'
     }))
     .filter((attr) => attr.name || attr.object_id);
 }
@@ -2016,7 +2058,7 @@ function buildDefaultStaticAttributes({
     attrs.push({ name: 'notes', type: 'Text', value: description });
   }
   if (statusPlaceholder) {
-    attrs.push({ name: 'machineStatusPlaceholderCode', type: 'Integer', value: statusPlaceholder.code });
+    attrs.push({ name: 'machineStatusPlaceholderCode', type: 'Number', value: statusPlaceholder.code });
     attrs.push({ name: 'machineStatusPlaceholderName', type: 'Text', value: statusPlaceholder.name });
   }
   if (serviceKey) {
@@ -2203,13 +2245,9 @@ function readOrionAttributeValue(raw) {
 
 function readOrionAttributeType(raw) {
   if (raw && typeof raw === 'object' && typeof raw.type === 'string') {
-    return raw.type;
+    return normalizeAttributeType(raw.type);
   }
-  const value = readOrionAttributeValue(raw);
-  if (typeof value === 'number') return Number.isInteger(value) ? 'Integer' : 'Number';
-  if (typeof value === 'boolean') return 'Boolean';
-  if (value && typeof value === 'object') return 'StructuredValue';
-  return 'Text';
+  return inferCanonicalAttributeType(readOrionAttributeValue(raw));
 }
 
 function parsePortalTelemetryMetadata(raw) {
@@ -3041,7 +3079,7 @@ function openMachineAttributesModal(machine) {
           <tr class="border-b border-gray-100">
             <td class="py-1.5 pr-3 text-xs font-semibold text-indigo-700">${escapeHtml(a.name || '')}</td>
             <td class="py-1.5 pr-3 text-xs text-indigo-500">${escapeHtml(a.type || '')}</td>
-            <td class="py-1.5 text-xs text-gray-600">${escapeHtml(String(a.value ?? ''))}</td>
+            <td class="py-1.5 text-xs text-gray-600">${escapeHtml(formatAttributeValue(a.value))}</td>
           </tr>`
           )
           .join('')
@@ -3053,7 +3091,7 @@ function openMachineAttributesModal(machine) {
         <tr class="border-b border-gray-100 system-attr hidden">
           <td class="py-1.5 pr-3 text-xs font-semibold text-amber-700">${escapeHtml(a.name || '')}</td>
           <td class="py-1.5 pr-3 text-xs text-amber-500">${escapeHtml(a.type || '')}</td>
-          <td class="py-1.5 text-xs text-gray-500">${escapeHtml(String(a.value ?? ''))}</td>
+          <td class="py-1.5 text-xs text-gray-500">${escapeHtml(formatAttributeValue(a.value))}</td>
         </tr>`
       )
       .join('');
@@ -3240,13 +3278,14 @@ function populateEditMachineModal(machine) {
   populateEditMachineServiceGroupOptions(machine.serviceKey);
 
   // Telemetry attributes — start in manual mode with existing JSON
-  editTelemetryAttributeEntries = Array.isArray(machine.attributes)
+  const currentTelemetryAttributes = Array.isArray(machine.attributes)
     ? machine.attributes.map((a) => ({ ...a }))
     : [];
+  editTelemetryAttributeEntries = currentTelemetryAttributes.map(normalizeAutomaticAttribute);
   setVal(
     'editMachineAttributesManual',
-    editTelemetryAttributeEntries.length
-      ? JSON.stringify(editTelemetryAttributeEntries, null, 2)
+    currentTelemetryAttributes.length
+      ? JSON.stringify(currentTelemetryAttributes, null, 2)
       : ''
   );
 
@@ -3270,11 +3309,11 @@ function populateEditMachineModal(machine) {
   const customStatic = Array.isArray(machine.staticAttributes)
     ? machine.staticAttributes.filter((a) => !SYSTEM_STATIC_ATTR_NAMES.has(a.name))
     : [];
-  editStaticAttributeEntries = customStatic.map((a) => ({ ...a }));
+  editStaticAttributeEntries = customStatic.map(normalizeAutomaticAttribute);
   setVal(
     'editMachineStaticAttributesManual',
-    editStaticAttributeEntries.length
-      ? JSON.stringify(editStaticAttributeEntries, null, 2)
+    customStatic.length
+      ? JSON.stringify(customStatic, null, 2)
       : ''
   );
 
@@ -3336,7 +3375,10 @@ function handleEditAddTelemetryAttribute(event) {
   }
   const objectId = (document.getElementById('editAttributeObjectId')?.value || '').trim();
   const name = (document.getElementById('editAttributeName')?.value || '').trim();
-  const type = (document.getElementById('editAttributeType')?.value || '').trim();
+  const type = normalizeAttributeType(
+    document.getElementById('editAttributeType')?.value,
+    { preserveUnknown: false }
+  );
   if (!objectId || !name || !type) {
     showMessage(msgEl, 'Provide object ID, name, and type for the telemetry attribute.');
     return;
@@ -3395,7 +3437,10 @@ function handleEditAddStaticAttribute(event) {
     return;
   }
   const name = (document.getElementById('editStaticAttributeName')?.value || '').trim();
-  const type = (document.getElementById('editStaticAttributeType')?.value || '').trim();
+  const type = normalizeAttributeType(
+    document.getElementById('editStaticAttributeType')?.value,
+    { preserveUnknown: false }
+  );
   const value = (document.getElementById('editStaticAttributeValue')?.value || '').trim();
   if (!name || !type || !value) {
     showMessage(msgEl, 'Provide name, type, and value for the static attribute.');
@@ -3405,7 +3450,12 @@ function handleEditAddStaticAttribute(event) {
     showMessage(msgEl, `${name} is managed by the portal and cannot be added as a custom attribute.`);
     return;
   }
-  editStaticAttributeEntries.push({ name, type, value });
+  const parsedValue = parseStaticAttributeValue(type, value);
+  if (!parsedValue.valid) {
+    showMessage(msgEl, `${name}: ${parsedValue.error}`);
+    return;
+  }
+  editStaticAttributeEntries.push({ name, type: parsedValue.type, value: parsedValue.value });
   renderEditStaticAttributeList();
   const clearId = (id) => { const el = document.getElementById(id); if (el) el.value = ''; };
   clearId('editStaticAttributeName');
@@ -3437,7 +3487,7 @@ function renderEditStaticAttributeList() {
       const label = [
         `<span class="font-semibold text-gray-800">${escapeHtml(attr.name)}</span>`,
         `<span class="ml-2 text-xs text-indigo-600">${escapeHtml(attr.type)}</span>`,
-        `<span class="ml-2 text-xs text-gray-500">${escapeHtml(String(attr.value ?? ''))}</span>`
+        `<span class="ml-2 text-xs text-gray-500">${escapeHtml(formatAttributeValue(attr.value))}</span>`
       ].join('');
       return `<li class="px-3 py-2 flex items-center justify-between">
         <span class="text-sm text-gray-700">${label}</span>
@@ -3452,7 +3502,7 @@ function renderEditStaticAttributeList() {
 
 function collectEditTelemetryAttributes() {
   if (editTelemetryInputMode === 'automatic') {
-    return editTelemetryAttributeEntries.map((e) => ({ ...e }));
+    return editTelemetryAttributeEntries.map(normalizeAutomaticAttribute);
   }
   const raw = (document.getElementById('editMachineAttributesManual')?.value || '').trim();
   if (!raw) return [];
@@ -3468,7 +3518,10 @@ function collectEditTelemetryAttributes() {
 
 function collectEditStaticAttributesInput() {
   if (editStaticInputMode === 'automatic') {
-    return editStaticAttributeEntries.map((e) => ({ ...e }));
+    return validateAutomaticStaticAttributes(editStaticAttributeEntries, {
+      showErrors: true,
+      messageElement: document.getElementById('editMachineMsg')
+    });
   }
   const raw = (document.getElementById('editMachineStaticAttributesManual')?.value || '').trim();
   if (!raw) return [];

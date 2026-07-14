@@ -1,6 +1,10 @@
-# Phase III - Predictive Maintenance v0.7
+# Phase III - Predictive Maintenance v0.7.1
 
 **This phase starts the predictive maintenance roadmap by adding the historical telemetry foundation required for later machine learning and tightening the secured operator portal around that foundation.**
+
+Version `0.7.1` is a minimal compatibility and data-model correction. It standardizes the machine attribute builders on the NGSI types used by this project and changes the MQTT simulator's `maximum/value` counters from escaped text to real structured JSON values.
+
+Version `0.7.1` does not change the IoT Agent, authentication, authorization, connectivity thresholds, 3D factory behavior, or predictive-maintenance scope established by v0.7.
 
 Version `0.7` adds explicit machine-connectivity monitoring based on `iamalive`, separates connectivity from the last reported operational state throughout the portal, and redesigns the anonymous entry experience without changing the Keyrock OAuth Authorization Code flow.
 
@@ -18,11 +22,39 @@ The existing Phase II security model remains the baseline: browser traffic goes 
 
 **Phase**: `Phase III - Predictive Maintenance`
 
-**Version**: `0.7`
+**Version**: `0.7.1`
 
 **Author**: Tiago Lemos
 
 **Licence**: MIT
+
+---
+
+## Scope of v0.7.1
+
+### Implemented
+
+- Automatic Telemetry Attributes and Static Attributes builders restricted to `Number`, `Text`, `Boolean`, `StructuredValue`, and `DateTime` in both Add Machine and Edit Machine
+- Legacy `integer`, `float`, `number`, `string`, `text`, `boolean`, `structuredvalue`, and `datetime` aliases normalized to their canonical project types when records are handled through the automatic builders
+- Manual JSON mode kept unrestricted so machine-specific or custom IoT Agent types remain available
+- Automatic static values converted to real JSON values: finite numbers, booleans, objects or arrays, timezone-qualified ISO 8601 timestamps, and text
+- Existing unsupported custom types preserved instead of being removed during an explicit automatic edit
+- Portal-generated status placeholder codes and inferred Orion numeric values standardized on `Number` instead of `Integer`
+- Structured static values rendered as compact JSON instead of `[object Object]` in machine attribute views
+- Simulator `maximum/value` counters published as raw JSON objects containing numeric fields
+- All 75 simulator maintenance-counter mappings changed from `Text` to `StructuredValue`, while `iamalive` remains `Text` and scalar telemetry remains `Number`
+- Simulator documentation updated with the new payload contract and the known custom-IoT-Agent compatibility boundary
+- Unit coverage for type aliases, static-value conversion, invalid values, timezone requirements, inference, and structured-value formatting
+
+### Not Changed
+
+- The custom IoT Agent implementation or its MQTT object-routing behavior
+- Existing provisioned machines until a user explicitly saves an edit or provisions the machine again
+- The real-machine `iamalive` format or its `Text` mapping
+- OAuth Authorization Code flow, Keyrock, PEP Proxy, AuthzForce, Orion, QuantumLeap, CrateDB, or 3D layout persistence
+- Predictive-maintenance forecasts, ML training, anomaly detection, or remaining useful life calculation
+
+This patch aligns the portal's generated provisioning data with the NGSI type names used by Orion while keeping advanced manual mappings and existing records under explicit operator control.
 
 ---
 
@@ -221,6 +253,47 @@ This version focuses on ingestion correctness. Historical data and future ML wor
 - Dashboards for predictive maintenance
 
 This phase deliberately separates **data collection** from **prediction**. Predictive maintenance models need enough clean historical data first; this version creates that data layer.
+
+---
+
+## New in v0.7.1
+
+### ✅ Canonical attribute types and typed static values
+
+What changed:
+
+- Add Machine and Edit Machine now expose the same five automatic type choices: `Number`, `Text`, `Boolean`, `StructuredValue`, and `DateTime`.
+- Integer and decimal values share the `Number` type, matching the project's NGSIv2 model.
+- Known legacy aliases are normalized when an existing record is loaded into an automatic builder.
+- The manual JSON editors remain unrestricted and continue to preserve custom types when saved in manual mode.
+- Automatic static attributes are validated and converted before they enter the provisioning payload.
+- `StructuredValue` requires a JSON object or array, and `DateTime` requires ISO 8601 with `Z` or an explicit timezone offset.
+- Portal-generated and inferred numeric metadata now uses `Number`; structured values are displayed as JSON in attribute lists.
+
+Why this was done:
+
+- Presenting `integer`, `float`, and `string` beside NGSI names mixed programming-language terminology with Orion attribute types.
+- A type label is not sufficient if the associated value is still serialized as text.
+- Keeping manual mode open preserves compatibility with machine-specific mappings without weakening the predictable automatic workflow.
+
+---
+
+### ✅ Structured MQTT maintenance counters
+
+What changed:
+
+- The MQTT simulator now publishes every `maximum/value` counter directly as `{"maximum":250,"value":10}`.
+- `maximum` and `value` are JSON numbers instead of quoted strings.
+- The simulator provisioning map assigns `StructuredValue` to all 75 counter attributes.
+- `iamalive` remains a `Text` value in the real-machine-compatible `YYYY-MM-DD HH:mm:ss` format.
+- No IoT Agent source or container configuration was changed.
+- Existing devices are not migrated silently; the new mapping takes effect only after explicit provisioning or saving.
+
+Why this was done:
+
+- Maintenance counters are structured data and should remain queryable as structured data rather than encoded JSON text.
+- Numeric nested fields avoid repeated string parsing in portal, historical-data, and future maintenance logic.
+- Leaving the IoT Agent unchanged makes any object-routing incompatibility visible at the correct integration boundary instead of hiding it in the simulator.
 
 ---
 

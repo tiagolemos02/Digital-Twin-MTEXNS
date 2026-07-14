@@ -470,11 +470,20 @@ void advanceUsageCounters(MachineState& state, bool statusChanged) {
 String counterPayload(uint32_t maximum, uint32_t value) {
   String payload;
   payload.reserve(48);
-  payload = "{\"maximum\":\"";
+  payload = "{\"maximum\":";
   payload += String((unsigned long)maximum);
-  payload += "\",\"value\":\"";
+  payload += ",\"value\":";
   payload += String((unsigned long)value);
-  payload += "\"}";
+  payload += "}";
+  return payload;
+}
+
+String textPayload(const String& value) {
+  String payload;
+  payload.reserve(value.length() + 2);
+  payload = '"';
+  payload += value;
+  payload += '"';
   return payload;
 }
 
@@ -553,7 +562,7 @@ void SensorGenerators::buildPayload(
 
   switch (sensor.kind) {
     case SENSOR_HEARTBEAT:
-      payload = heartbeat;
+      payload = textPayload(heartbeat);
       break;
     case SENSOR_MACHINE_STATUS:
       payload = String(state.machineStatus);
