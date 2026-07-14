@@ -283,6 +283,9 @@ Why this was done:
 
 The predictive-maintenance panel remains intentionally unchanged and displays `Sem previsão disponível` until real prediction data is integrated.
 
+<img width="896" height="632" alt="image" src="https://github.com/user-attachments/assets/bbb2d9d4-fe14-4f96-a81c-7fffafe7bd59" />
+
+
 ---
 
 ## New in v0.5
