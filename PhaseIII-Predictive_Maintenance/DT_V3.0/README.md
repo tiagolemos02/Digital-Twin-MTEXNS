@@ -317,6 +317,9 @@ Why this was done:
 
 The 3D scene shows current operational status, but no prediction or predictive telemetry is generated in this version.
 
+<img width="1019" height="633" alt="image" src="https://github.com/user-attachments/assets/4ccf49e0-0348-4443-bbe0-eaff428ae120" />
+
+
 ---
 
 ## New in v0.4
