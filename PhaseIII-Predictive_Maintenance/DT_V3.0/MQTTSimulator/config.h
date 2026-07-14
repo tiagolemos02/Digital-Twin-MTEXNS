@@ -2,8 +2,8 @@
 #define CONFIG_H
 
 // Wi-Fi Configuration
-#define WIFI_SSID "Jorge_Mesh"
-#define WIFI_PASSWORD "antjorgetavlemosvsc1922"
+#define WIFI_SSID "some_ssid"
+#define WIFI_PASSWORD "some_pass"
 
 // MQTT Configuration
 #define MQTT_SERVER "192.168.68.63"
