@@ -1,6 +1,10 @@
-# Phase III - Predictive Maintenance v0.6
+# Phase III - Predictive Maintenance v0.7
 
 **This phase starts the predictive maintenance roadmap by adding the historical telemetry foundation required for later machine learning and tightening the secured operator portal around that foundation.**
+
+Version `0.7` adds explicit machine-connectivity monitoring based on `iamalive`, separates connectivity from the last reported operational state throughout the portal, and redesigns the anonymous entry experience without changing the Keyrock OAuth Authorization Code flow.
+
+Version `0.7` still does **not** train or run ML predictions. The machine inspector continues to show `Sem previsão disponível`; this release focuses on trustworthy communication state, clearer access boundaries, and a more coherent MTEX NS entry point.
 
 Version `0.6` strengthens the personal multi-machine 3D factory introduced in v0.5. Machines can now be selected directly on the map, each asset receives a stable visual identity, the map is presented as a procedural MTEX NS factory environment, and machine provisioning uses a required, validated Asset ID.
 
@@ -14,11 +18,47 @@ The existing Phase II security model remains the baseline: browser traffic goes 
 
 **Phase**: `Phase III - Predictive Maintenance`
 
-**Version**: `0.6`
+**Version**: `0.7`
 
 **Author**: Tiago Lemos
 
 **Licence**: MIT
+
+---
+
+## Scope of v0.7
+
+### Implemented
+
+- Connectivity calculated from the `iamalive` heartbeat instead of assuming that the last `machine_status` value is still current
+- Four explicit connectivity states: **Online** through 2 minutes, **Stale / Communication delayed** after 2 and through 10 minutes, **Offline** after 10 minutes, and **Unknown** when no valid heartbeat exists
+- Orion attribute receive metadata or entity `TimeInstant` used before the machine-supplied heartbeat timestamp, with `Europe/Lisbon` parsing for timestamps that do not include an offset
+- Authenticated background monitoring every 30 seconds, independent of the active portal tab, with page-visibility recovery and in-flight request protection
+- Monitoring failures kept separate from machine failures: three consecutive Orion failures change connectivity to unavailable instead of incorrectly marking machines Offline
+- Canonical `iamalive` telemetry mapping required for newly provisioned machines, with both Object ID and Name set to `iamalive`
+- Backward compatibility for existing machines without a valid heartbeat; they remain visible and display Unknown with guidance rather than being blocked or rewritten
+- Separate **Connectivity** and **Operational state** presentation in Machines In Use, Current State, and the 3D machine inspector
+- Last contact and last operational-state report timestamps shown independently
+- 3D connectivity rings with Online, delayed, Offline, and unavailable colors
+- Offline machines retained in the factory map with a gray pedestal and identity plate plus non-destructive per-instance GLB desaturation that restores automatically when connectivity returns
+- Critical operational-state animation limited to Online machines so stale or offline equipment never continues to pulse as if actively processing
+- Dedicated anonymous authentication gate with a sanitized WebP render of the procedural factory, MTEX NS styling, responsive desktop/mobile composition, and one **Continue to secure sign-in** action
+- Existing Keyrock BFF-managed OAuth Authorization Code redirect kept unchanged at `/auth/login`; no portal-side username or password fields were added
+- Entire authenticated shell hidden until `/auth/session` confirms the BFF session
+- Restricted modules represented by an explicit lock and **Restricted** state while their inaccessible forms and tables remain hidden
+- Silent table and map refreshes without per-machine notifications
+- Unit coverage for thresholds, timestamp priority, monitoring failures, layout behavior, Asset ID behavior, and mandatory new-machine heartbeat mapping
+
+### Not Implemented Yet
+
+- Predictive-maintenance forecasts or telemetry inside the machine inspector
+- ML model training
+- Anomaly detection
+- Remaining useful life prediction
+- Prediction tables in CrateDB
+- Writing prediction results back to Orion
+
+This version prevents stale operational values from presenting a disconnected machine as active. It also keeps machine health, FIWARE infrastructure availability, and the last reported operating mode as distinct concepts so operators can understand what the portal actually knows.
 
 ---
 
@@ -184,6 +224,106 @@ This phase deliberately separates **data collection** from **prediction**. Predi
 
 ---
 
+## New in v0.7
+
+### ✅ Heartbeat-based connectivity
+
+What changed:
+
+- `iamalive` is now the authoritative machine heartbeat used to derive connectivity.
+- A heartbeat age of 0 to 2 minutes is Online, over 2 through 10 minutes is Communication delayed, and over 10 minutes is Offline.
+- Missing or invalid `iamalive` values produce Unknown instead of inferring connectivity from unrelated attributes.
+- When present, the receive timestamp in `iamalive` metadata or the entity `TimeInstant` takes priority over the timestamp supplied by the machine.
+- Machine timestamps without an explicit UTC offset are interpreted in the configurable factory time zone, which defaults to `Europe/Lisbon`.
+- Connectivity is recalculated from the current clock whenever views render, so a machine transitions to delayed or Offline even when Orion continues to hold its last entity value.
+
+Why this was done:
+
+- Orion correctly persists the last value but persistence alone does not prove that a machine is still communicating.
+- A previous `machine_status` such as Printing must remain visible as the last reported operating mode without being presented as live connectivity.
+- Explicit thresholds make stale-data behavior deterministic and testable.
+
+---
+
+### ✅ Central authenticated monitoring
+
+What changed:
+
+- The portal polls only `iamalive`, `machine_status`, and `TimeInstant` every 30 seconds after the BFF session is confirmed.
+- The monitor runs independently of the active authenticated tab and refreshes when a hidden page becomes visible again.
+- Concurrent polls are prevented and in-flight requests are aborted when the session ends.
+- One or two failed polls retain the previous machine state silently; after three consecutive failures the monitor reports Monitoring unavailable.
+- A successful poll resets the failure counter and restores normal connectivity calculation.
+- A single global notice appears only when connectivity monitoring itself is unavailable.
+
+Why this was done:
+
+- Polling per view would duplicate requests and allow different tabs to disagree about the same machine.
+- Orion or network failure is an infrastructure condition, not evidence that every machine became Offline.
+- Silent updates preserve an operational interface without repetitive per-machine notifications.
+
+---
+
+### ✅ Mandatory heartbeat for new machines with legacy compatibility
+
+What changed:
+
+- Add Machine now requires an IoT Agent telemetry mapping whose `object_id` and `name` are both exactly `iamalive`, case-insensitively.
+- The Telemetry mapping step includes the canonical JSON example `{"object_id":"iamalive","name":"iamalive","type":"Text"}`.
+- Payload preview and registration remain blocked until this mapping is present.
+- Editing an existing machine does not retroactively enforce the rule.
+- Existing machines without a valid heartbeat remain registered and visible with Unknown and a clear missing-heartbeat indication.
+
+Why this was done:
+
+- New registrations need one predictable contract for connectivity monitoring.
+- Retroactively rejecting legacy machines would remove operational visibility and force an unsafe bulk migration.
+- The mapping stays in IoT Agent provisioning; no portal layout metadata is written to Orion or FIWARE.
+
+---
+
+### ✅ Connectivity in tables and the 3D factory
+
+What changed:
+
+- Machines In Use now has separate Connectivity and Operational state columns.
+- Current State device rows show connectivity, the last operational-state badge, and heartbeat age together without merging their meanings.
+- The 3D inspector shows connectivity, last contact, operational state, and the timestamp of the last operational report as separate rows.
+- Map rings use connectivity colors; delayed machines use amber and unavailable machines use neutral gray.
+- Offline machines remain selectable and keep their saved placement.
+- Offline pedestals and identity plates become gray and each offline GLB instance is desaturated through cloned materials; reconnecting restores the original material colors.
+- Operational critical-state pulsing runs only while the same machine is Online.
+
+Why this was done:
+
+- Operators need to distinguish “the last state was Printing” from “the machine is communicating now.”
+- Keeping disconnected machines in place preserves spatial and asset context.
+- Per-instance material cloning avoids mutating the shared GLB template or changing the appearance of other machines.
+
+---
+
+### ✅ Focused authentication and restricted-access states
+
+What changed:
+
+- The anonymous first screen is now a dedicated authentication gate rather than an inactive portal form.
+- A sanitized static WebP captured from the same procedural factory environment carries the digital-twin context without using account or machine data.
+- The gate contains one action, **Continue to secure sign-in**, which keeps the existing `/auth/login` redirect and BFF-managed Keyrock Authorization Code flow.
+- Unused portal email/password inputs and the previous Security Information panel were removed.
+- The portal sidebar, headers, forms, tables, and 3D workspace remain hidden until `/auth/session` confirms authentication.
+- Modules denied by capability checks keep their sidebar entry but show a lock, a Restricted label, the required capability, and the recovery action.
+- Restricted module content is not rendered visibly behind a gray disabled treatment.
+
+Why this was done:
+
+- The previous inputs implied that credentials were processed by the portal even though authentication already occurred in Keyrock.
+- One explicit redirect action makes the security boundary accurate and easier to understand.
+- Clear restricted states explain authorization without exposing unusable forms or making the whole interface appear broken.
+
+The predictive-maintenance panel remains intentionally unchanged and displays `Sem previsão disponível` until real prediction data is integrated.
+
+---
+
 ## New in v0.6
 
 ### ✅ Direct selection and camera continuity
@@ -283,9 +423,6 @@ Why this was done:
 
 The predictive-maintenance panel remains intentionally unchanged and displays `Sem previsão disponível` until real prediction data is integrated.
 
-<img width="896" height="632" alt="image" src="https://github.com/user-attachments/assets/bbb2d9d4-fe14-4f96-a81c-7fffafe7bd59" />
-
-
 ---
 
 ## New in v0.5
@@ -319,9 +456,6 @@ Why this was done:
 - The identity/status inspector creates a stable operational surface without presenting predictive information before real prediction data exists.
 
 The 3D scene shows current operational status, but no prediction or predictive telemetry is generated in this version.
-
-<img width="1019" height="633" alt="image" src="https://github.com/user-attachments/assets/4ccf49e0-0348-4443-bbe0-eaff428ae120" />
-
 
 ---
 

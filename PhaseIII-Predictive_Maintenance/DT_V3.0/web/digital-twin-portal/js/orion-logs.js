@@ -10,7 +10,7 @@ import {
     logsTableBody, logsMessage, deviceFilter, attributeFilter
 } from './dom-elements.js';
 import { formatResponseError, formatThrownError } from './error-messages.js';
-import { updateActivityFromDevices, getDeviceActivity } from './device-activity.js';
+import { getDeviceActivity } from './device-activity.js';
 import {
     getRegisteredMachineEntityIds,
     getRegisteredMachineAttributeNames,
@@ -18,6 +18,11 @@ import {
     syncRegisteredMachinesFromOrionEntities
 } from './inventory.js';
 import { DEFAULT_MACHINE_STATUS, renderMachineStatusBadge } from './machine-status.js';
+import {
+    renderConnectivityBadge,
+    resolveConnectivity,
+    formatConnectivityAge
+} from './connectivity-status.js';
 
 // In-memory storage for logs filtering
 let logsGrouped = [];
@@ -114,7 +119,6 @@ export async function listLogs() {
         }
 
         const now = Date.now();
-        updateActivityFromDevices(devices, { now });
 
         // Process and group the data
         logsGrouped = processDeviceData(devices, now);
@@ -186,17 +190,15 @@ export async function listLogs() {
 
          const activity = getDeviceActivity(deviceEntry.id, { now });
          if (activity) {
-             deviceEntry.offline = activity.offline;
-             deviceEntry.status = activity.status;
+             deviceEntry.connectivity = activity.connectivity;
              deviceEntry.machineStatus = activity.machineStatus || DEFAULT_MACHINE_STATUS;
-             deviceEntry.lastUpdateIso = activity.lastUpdateIso || "-";
-             deviceEntry.lastUpdateMs = activity.lastUpdateMs ?? null;
+             deviceEntry.lastContactIso = activity.lastContactIso || "";
+             deviceEntry.lastOperationalUpdateIso = activity.lastOperationalUpdateIso || "";
          } else {
-             deviceEntry.offline = !deviceEntry.attributes.length;
-             deviceEntry.status = deviceEntry.offline ? "Offline" : "Unknown";
+             deviceEntry.connectivity = resolveConnectivity({ reason: 'missing-iamalive' });
              deviceEntry.machineStatus = DEFAULT_MACHINE_STATUS;
-             deviceEntry.lastUpdateIso = "-";
-             deviceEntry.lastUpdateMs = null;
+             deviceEntry.lastContactIso = "";
+             deviceEntry.lastOperationalUpdateIso = "";
          }
 
          if (deviceEntry.attributes.length) {
@@ -280,10 +282,18 @@ function createDeviceRow(device) {
     const devRow = document.createElement("tr");
     devRow.classList.add("device-row", "bg-indigo-50");
     devRow.style.cursor = "pointer"; 
-    const statusBadge = renderMachineStatusBadge(device.machineStatus || DEFAULT_MACHINE_STATUS, 'mr-2');
+    const connectivityBadge = renderConnectivityBadge(device.connectivity, 'mr-3');
+    const statusBadge = renderMachineStatusBadge(device.machineStatus || DEFAULT_MACHINE_STATUS, 'mr-3');
+    const contactText = device.connectivity?.ageMs == null
+        ? 'No valid iamalive received'
+        : `Last contact ${formatConnectivityAge(device.connectivity.ageMs)}`;
     devRow.innerHTML = `
         <td colspan="5" class="px-6 py-4 font-medium text-sm">
-            <i id="arrow-${safeId(device.id)}" class="fas fa-chevron-right arrow-icon mr-2"></i>${statusBadge}<span>${escapeHtml(getMachineLabel(device.id))}</span>
+            <div class="current-state-device-row">
+              <span><i id="arrow-${safeId(device.id)}" class="fas fa-chevron-right arrow-icon mr-2"></i>${escapeHtml(getMachineLabel(device.id))}</span>
+              <span class="current-state-device-signals">${connectivityBadge}${statusBadge}</span>
+              <span class="current-state-device-contact">${escapeHtml(contactText)}</span>
+            </div>
         </td>`;
 
     // Add click handler for expand/collapse

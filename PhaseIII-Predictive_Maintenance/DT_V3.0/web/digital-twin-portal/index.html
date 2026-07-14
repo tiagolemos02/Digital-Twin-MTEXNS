@@ -12,7 +12,40 @@
   <link rel="stylesheet" href="css/styles.css" />
 </head>
 <body class="min-h-screen bg-gray-50">
-  <div id="portalShell" class="portal-shell">
+  <section id="loginSection" class="auth-gate" aria-labelledby="authGateTitle">
+    <div class="auth-gate-visual" role="img" aria-label="Sanitized MTEX NS digital factory environment">
+      <img
+        src="assets/login-factory.webp"
+        alt=""
+        class="auth-gate-image"
+        width="1280"
+        height="720"
+      />
+    </div>
+    <div class="auth-gate-panel">
+      <div class="auth-gate-content">
+        <div class="auth-brand-mark" aria-hidden="true">
+          <i class="fas fa-cube"></i>
+        </div>
+        <p class="auth-brand-name">MTEX NS</p>
+        <h1 id="authGateTitle">Digital Twin Portal</h1>
+        <p class="auth-gate-copy">
+          Access the secure workspace for machine operations, telemetry and digital twin services.
+        </p>
+        <form id="loginForm" class="auth-gate-form" onsubmit="return false;">
+          <button type="button" id="btnLogin" class="auth-primary-action">
+            <i class="fas fa-lock" aria-hidden="true"></i>
+            <span id="loginBtnText">Continue to secure sign-in</span>
+            <i id="loginSpinner" class="fas fa-spinner loading-spinner hidden" aria-hidden="true"></i>
+          </button>
+          <div id="loginMsg" class="auth-message" role="alert" aria-live="polite"></div>
+        </form>
+        <p class="auth-provider-note">Authentication is managed by Keyrock.</p>
+      </div>
+    </div>
+  </section>
+
+  <div id="portalShell" class="portal-shell hidden">
     <aside
       id="portalSidebar"
       class="portal-sidebar"
@@ -202,80 +235,16 @@
             Secure operations for FIWARE machine telemetry and digital twin services
           </p>
         </div>
+        <div id="connectivityMonitorNotice" class="monitoring-notice hidden" role="status">
+          <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
+          <span>Machine connectivity monitoring is temporarily unavailable. Connectivity states are shown as unavailable until Orion responds.</span>
+        </div>
       </header>
 
       <!-- MAIN -->
       <main>
-      <!-- LOGIN SECTION -->
-      <section id="loginSection" class="card bg-white rounded-lg p-6 mb-6">
-        <div class="grid md:grid-cols-2 gap-6">
-          <div>
-            <form id="loginForm" onsubmit="return false;">
-              <div class="mb-4">
-                <label
-                  for="email"
-                  class="block text-sm font-medium text-gray-700 mb-1"
-                  >Email</label
-                >
-                <div class="relative">
-                  <input
-                    type="email"
-                    id="email"
-                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                    placeholder="admin@digitaltwin.com"
-                  />
-                  <i class="fas fa-envelope absolute right-3 top-3 text-gray-400"></i>
-                </div>
-              </div>
-              <div class="mb-4">
-                <label
-                  for="password"
-                  class="block text-sm font-medium text-gray-700 mb-1"
-                  >Password</label
-                >
-                <div class="relative">
-                  <input
-                    type="password"
-                    id="password"
-                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                    placeholder="••••••••"
-                  />
-                  <i id="togglePassword" class="fas fa-eye-slash password-toggle"></i>
-                </div>
-              </div>
-              <button
-                type="button"
-                id="btnLogin"
-                class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 px-4 rounded-lg transition duration-200 flex items-center justify-center"
-              >
-                <span id="loginBtnText">Sign In</span>
-                <i id="loginSpinner" class="fas fa-spinner loading-spinner ml-2 hidden"></i>
-              </button>
-              <div id="loginMsg" class="mt-3 text-sm text-red-600"></div>
-            </form>
-          </div>
-          <div
-            class="hidden md:block bg-gray-50 p-6 rounded-lg border border-gray-200"
-          >
-            <h3 class="text-lg font-medium text-gray-800 mb-3">
-              Security Information
-            </h3>
-            <p class="text-sm text-gray-600 mb-2">
-              <i class="fas fa-lock text-green-600 mr-1"></i> End‑to‑End TLS 1.3
-            </p>
-            <p class="text-sm text-gray-600 mb-2">
-              <i class="fas fa-user-shield text-blue-600 mr-1"></i> Role‑Based
-              Access Control
-            </p>
-            <p class="text-sm text-gray-600">
-              <i class="fas fa-fingerprint text-purple-600 mr-1"></i> Optional MFA
-            </p>
-          </div>
-        </div>
-      </section>
-
       <!-- USERS SECTION -->
-      <section id="usersSection" class="disabled-section">
+      <section id="usersSection">
         <div class="card bg-white rounded-lg p-6 mb-6">
           <div class="flex items-center justify-between mb-6">
             <div class="flex items-center">
@@ -695,8 +664,16 @@
                     <div class="flex items-center justify-between">
                       <div>
                         <h4 class="text-sm font-semibold text-gray-800">Telemetry Attributes</h4>
-                        <p class="text-xs text-gray-500">Define how this device sends live telemetry.</p>
+                      <p class="text-xs text-gray-500">Define how this device sends live telemetry.</p>
                       </div>
+                    </div>
+                    <div class="iamalive-requirement" role="note">
+                      <i class="fas fa-heart-pulse" aria-hidden="true"></i>
+                      <p>
+                        New machines must include <code>iamalive</code> with both Object ID and Name set to
+                        <code>iamalive</code>. Example:
+                        <code>{"object_id":"iamalive","name":"iamalive","type":"Text"}</code>
+                      </p>
                     </div>
                     <div class="mt-3">
                       <div class="flex items-center justify-between mb-2">
@@ -720,10 +697,10 @@
                         id="machineAttributesManual"
                         rows="3"
                         class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                        placeholder='[{"object_id":"state/machine_status","name":"machineStatus","type":"integer"}]'
+                        placeholder='[{"object_id":"iamalive","name":"iamalive","type":"Text"}]'
                       ></textarea>
                       <p class="mt-2 text-xs text-gray-500">
-                        Provide IoT Agent attributes in JSON format. Leave blank to register without telemetry mappings.
+                        Provide IoT Agent attributes in JSON format. The canonical iamalive mapping is required for new machines.
                       </p>
                     </div>
                     <div id="attributeAutomaticContainer" class="hidden mt-4 space-y-3">
@@ -957,7 +934,8 @@
                       <th class="px-5 py-3 text-left">Device ID</th>
                       <th class="px-5 py-3 text-left">Entity</th>
                       <th class="px-5 py-3 text-left">Service Group</th>
-                      <th class="px-5 py-3 text-left">Status</th>
+                      <th class="px-5 py-3 text-left">Connectivity</th>
+                      <th class="px-5 py-3 text-left">Operational state</th>
                       <th class="px-5 py-3 text-left">Details</th>
                       <th class="px-5 py-3 text-right">Actions</th>
                     </tr>
@@ -967,7 +945,7 @@
                     class="bg-white divide-y divide-gray-200 text-sm text-gray-700"
                   >
                     <tr>
-                      <td colspan="6" class="px-5 py-4 text-center text-gray-500">
+                      <td colspan="7" class="px-5 py-4 text-center text-gray-500">
                         No machines recorded yet.
                       </td>
                     </tr>
@@ -1295,8 +1273,13 @@
               </section>
 
               <section class="twin-inspector-section" aria-labelledby="twinStatusHeading">
-                <h4 id="twinStatusHeading">Status</h4>
-                <div id="twinInspectorStatus"></div>
+                <h4 id="twinStatusHeading">Machine state</h4>
+                <dl class="twin-identity-list twin-state-list">
+                  <div><dt>Connectivity</dt><dd id="twinInspectorConnectivity">—</dd></div>
+                  <div><dt>Last contact</dt><dd id="twinInspectorLastContact">—</dd></div>
+                  <div><dt>Operational state</dt><dd id="twinInspectorStatus">—</dd></div>
+                  <div><dt>State reported</dt><dd id="twinInspectorOperationalUpdated">—</dd></div>
+                </dl>
               </section>
 
               <section class="twin-inspector-section twin-prediction-section" aria-labelledby="twinPredictionHeading">

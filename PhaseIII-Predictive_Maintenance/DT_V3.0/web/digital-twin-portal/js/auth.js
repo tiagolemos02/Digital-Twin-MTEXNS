@@ -20,6 +20,8 @@ import {
     userMenuWrapper,
     loggedInEmail,
     loginSection,
+    portalShell,
+    connectivityMonitorNotice,
     tabsNav,
     usersSection,
     newUsername,
@@ -37,6 +39,26 @@ import { listLogs } from './orion-logs.js';
 import { refreshInventory } from './inventory.js';
 import { refreshRolesPermissionsData } from './roles-permissions.js';
 import { refreshHistoricalData } from './historical-data.js';
+import {
+    startDeviceActivityMonitor,
+    stopDeviceActivityMonitor,
+    getDeviceActivityMonitorState
+} from './device-activity.js';
+
+let monitorNoticeBound = false;
+
+function updateConnectivityMonitorNotice() {
+    if (!connectivityMonitorNotice) return;
+    const monitor = getDeviceActivityMonitorState();
+    connectivityMonitorNotice.classList.toggle('hidden', monitor.available);
+}
+
+export function setupConnectivityMonitorNotice() {
+    if (monitorNoticeBound || typeof window === 'undefined') return;
+    monitorNoticeBound = true;
+    window.addEventListener('device-activity-updated', updateConnectivityMonitorNotice);
+    updateConnectivityMonitorNotice();
+}
 
 function showAuthErrorFromUrl() {
     if (typeof window === 'undefined') return;
@@ -84,6 +106,9 @@ export async function applyAuthenticatedUI(email) {
     userMenuWrapper.classList.remove('hidden');
     loggedInEmail.textContent = email || currentUserEmail || 'Authenticated user';
     loginSection.classList.add('hidden');
+    portalShell.classList.remove('hidden');
+    document.body.classList.add('is-authenticated');
+    setupConnectivityMonitorNotice();
     tabsNav.classList.remove('hidden');
     usersSection.classList.remove('disabled-section');
 
@@ -130,6 +155,7 @@ export async function applyAuthenticatedUI(email) {
             console.error('Failed to load roles & permissions data:', err);
         }
     }
+    startDeviceActivityMonitor();
     switchTab(initialTab);
 }
 
@@ -230,9 +256,13 @@ export async function resumeStoredSession() {
 
     const state = await fetchSession();
     if (!state?.authenticated) {
+        stopDeviceActivityMonitor();
         setSessionToken('');
         setCurrentUserEmail('');
         setKeystoneToken('');
+        portalShell.classList.add('hidden');
+        loginSection.classList.remove('hidden');
+        document.body.classList.remove('is-authenticated');
         return false;
     }
 
@@ -242,14 +272,4 @@ export async function resumeStoredSession() {
     setKeystoneToken('__bff_admin_proxy__');
     await applyAuthenticatedUI(email);
     return true;
-}
-
-/**
- * Handle Enter key press for login form
- * @param {Event} e - Keyboard event
- */
-export function handleLoginKeyPress(e) {
-    if (e.key === 'Enter') {
-        handleLogin();
-    }
 }

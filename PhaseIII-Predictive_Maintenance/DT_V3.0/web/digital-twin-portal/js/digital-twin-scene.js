@@ -19,6 +19,12 @@ const POINTER_THRESHOLD = 7;
 const TOUCH_POINTER_THRESHOLD = 13;
 const TOUCH_DRAG_DELAY_MS = 120;
 const CRITICAL_STATUS_CODES = new Set([1, 14]);
+const OFFLINE_PEDESTAL_COLOR = 0x66686d;
+
+function connectivityColor(connectivity = {}) {
+  const rgb = Array.isArray(connectivity.rgb) ? connectivity.rgb : [156, 163, 175];
+  return new THREE.Color(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255);
+}
 
 function statusColor(status = {}) {
   const rgb = Array.isArray(status.rgb) ? status.rgb : [158, 158, 158];
@@ -70,6 +76,43 @@ function normalizeModel(scene) {
     child.receiveShadow = true;
   });
   return model;
+}
+
+function cloneViewMaterials(model) {
+  const materials = new Set();
+  model.traverse((child) => {
+    if (!child.isMesh || !child.material) return;
+    const sourceMaterials = Array.isArray(child.material) ? child.material : [child.material];
+    const clonedMaterials = sourceMaterials.map((source) => {
+      const material = source.clone();
+      if (material.color) material.userData.originalColor = material.color.clone();
+      if (material.emissive) material.userData.originalEmissive = material.emissive.clone();
+      materials.add(material);
+      return material;
+    });
+    child.material = Array.isArray(child.material) ? clonedMaterials : clonedMaterials[0];
+  });
+  return materials;
+}
+
+function setModelOffline(materials, offline) {
+  materials.forEach((material) => {
+    const originalColor = material.userData.originalColor;
+    if (material.color && originalColor) {
+      material.color.copy(originalColor);
+      if (offline) {
+        const hsl = {};
+        material.color.getHSL(hsl);
+        material.color.setHSL(hsl.h, hsl.s * 0.08, Math.min(0.72, hsl.l * 0.72 + 0.12));
+      }
+    }
+    const originalEmissive = material.userData.originalEmissive;
+    if (material.emissive && originalEmissive) {
+      material.emissive.copy(originalEmissive);
+      if (offline) material.emissive.multiplyScalar(0.18);
+    }
+    material.needsUpdate = true;
+  });
 }
 
 function createSelectionCorners() {
@@ -197,6 +240,11 @@ export function createDigitalTwinScene({
 
   const pedestalGeometry = new THREE.CylinderGeometry(1.48, 1.62, 0.22, 8);
   const pedestalMaterials = new Map();
+  const offlinePedestalMaterial = new THREE.MeshStandardMaterial({
+    color: OFFLINE_PEDESTAL_COLOR,
+    roughness: 0.78,
+    metalness: 0.08
+  });
   const statusRingGeometry = new THREE.RingGeometry(1.62, 1.82, 64);
   const ringOutlineGeometry = new THREE.RingGeometry(1.82, 1.88, 64);
   const ringOutlineMaterial = new THREE.MeshBasicMaterial({
@@ -248,7 +296,7 @@ export function createDigitalTwinScene({
   function updateCriticalRings(timestamp) {
     machineViews.forEach((view) => {
       if (!view.critical || reducedMotion.matches) {
-        view.statusRing.material.opacity = 0.92;
+        view.statusRing.material.opacity = view.connectivityState === 'unknown' ? 0.68 : 0.92;
         view.statusRing.scale.setScalar(1);
         return;
       }
@@ -309,8 +357,8 @@ export function createDigitalTwinScene({
     return { plateLabel, plateElement, detailLabel, element, title, asset, device, status };
   }
 
-  function pedestalMaterial(deviceId) {
-    const palette = getMachineIdentityPaletteEntry(deviceId);
+  function pedestalMaterial(machine) {
+    const palette = getMachineIdentityPaletteEntry(machine);
     if (!pedestalMaterials.has(palette.hex)) {
       pedestalMaterials.set(palette.hex, new THREE.MeshStandardMaterial({
         color: palette.hex,
@@ -325,7 +373,7 @@ export function createDigitalTwinScene({
     const root = new THREE.Group();
     root.userData.deviceId = machine.deviceId;
 
-    const pedestal = new THREE.Mesh(pedestalGeometry, pedestalMaterial(machine.deviceId));
+    const pedestal = new THREE.Mesh(pedestalGeometry, pedestalMaterial(machine));
     pedestal.position.y = 0.11;
     pedestal.castShadow = true;
     pedestal.receiveShadow = true;
@@ -356,6 +404,7 @@ export function createDigitalTwinScene({
     root.add(ringOutline);
 
     const model = (modelTemplate || createFallbackModel()).clone(true);
+    const modelMaterials = cloneViewMaterials(model);
     model.position.y += 0.22;
     model.userData.deviceId = machine.deviceId;
     model.traverse((child) => {
@@ -367,7 +416,18 @@ export function createDigitalTwinScene({
     root.add(labelParts.plateLabel, labelParts.detailLabel);
     scene.add(root);
 
-    return { root, pedestal, model, statusRing, ringOutline, ...labelParts, machine, critical: false };
+    return {
+      root,
+      pedestal,
+      model,
+      modelMaterials,
+      statusRing,
+      ringOutline,
+      ...labelParts,
+      machine,
+      critical: false,
+      connectivityState: 'unknown'
+    };
   }
 
   function disposeMachineView(view) {
@@ -375,6 +435,7 @@ export function createDigitalTwinScene({
     view.plateElement.remove();
     view.element.remove();
     view.statusRing.material.dispose();
+    view.modelMaterials?.forEach((material) => material.dispose());
   }
 
   function setPlacement(view, placement) {
@@ -385,17 +446,24 @@ export function createDigitalTwinScene({
 
   function updateMachineView(view, machine, placement) {
     view.machine = machine;
+    const connectivity = machine.connectivity || { state: 'unknown', label: 'Unknown' };
+    const offline = connectivity.state === 'offline';
+    view.connectivityState = connectivity.state || 'unknown';
+    view.pedestal.material = offline ? offlinePedestalMaterial : pedestalMaterial(machine);
     const details = getMachineLabelDetails(machine);
     view.plateElement.textContent = getAssetPlateLabel(machine);
     view.title.textContent = details.title;
     view.asset.textContent = details.assetId;
     view.asset.classList.toggle('is-missing', details.missing);
     view.device.textContent = details.deviceId;
-    view.status.textContent = details.status;
-    const statusRgb = Array.isArray(machine.machineStatus?.rgb) ? machine.machineStatus.rgb : [158, 158, 158];
-    view.status.style.setProperty('--machine-status-color', `rgb(${statusRgb.join(', ')})`);
-    view.statusRing.material.color.copy(statusColor(machine.machineStatus));
-    view.critical = CRITICAL_STATUS_CODES.has(Number(machine.machineStatus?.code));
+    view.status.textContent = `${connectivity.label || 'Unknown'} · ${details.status}`;
+    const connectivityRgb = Array.isArray(connectivity.rgb) ? connectivity.rgb : [156, 163, 175];
+    view.status.style.setProperty('--machine-status-color', `rgb(${connectivityRgb.join(', ')})`);
+    view.statusRing.material.color.copy(connectivityColor(connectivity));
+    view.critical = connectivity.state === 'online' && CRITICAL_STATUS_CODES.has(Number(machine.machineStatus?.code));
+    view.element.dataset.connectivity = view.connectivityState;
+    view.plateElement.dataset.connectivity = view.connectivityState;
+    setModelOffline(view.modelMaterials, offline);
     setPlacement(view, placement);
   }
 
@@ -754,6 +822,7 @@ export function createDigitalTwinScene({
       environment.destroy();
       pedestalGeometry.dispose();
       pedestalMaterials.forEach((material) => material.dispose());
+      offlinePedestalMaterial.dispose();
       statusRingGeometry.dispose();
       ringOutlineGeometry.dispose();
       ringOutlineMaterial.dispose();

@@ -64,7 +64,9 @@ export function resolveAssetIdentity({
     assetId,
     assetIdSource: source,
     assetIdMissing,
-    assetPlateLabel: assetId || trimmed(deviceId) || 'Machine'
+    assetPlateLabel: assetIdMissing
+      ? (trimmed(deviceId) || 'Machine')
+      : assetId
   };
 }
 
@@ -79,9 +81,11 @@ export function findAssetIdConflict(machines, value, ignoredDeviceId = '') {
 }
 
 export function getAssetPlateLabel(machine = {}) {
+  if (machine.assetIdMissing) {
+    return trimmed(machine.deviceId) || 'Machine';
+  }
   return trimmed(machine.assetPlateLabel)
     || trimmed(machine.assetId)
-    || trimmed(machine.model)
     || trimmed(machine.deviceId)
     || 'Machine';
 }
@@ -109,8 +113,14 @@ export function getMachineLabelDetails(machine = {}) {
   };
 }
 
-export function getMachineIdentityPaletteEntry(deviceId) {
-  const input = trimmed(deviceId);
+export function getMachineIdentityPaletteEntry(machineOrIdentity) {
+  const input = machineOrIdentity && typeof machineOrIdentity === 'object'
+    ? (
+        !machineOrIdentity.assetIdMissing && trimmed(machineOrIdentity.assetId)
+          ? trimmed(machineOrIdentity.assetId)
+          : trimmed(machineOrIdentity.deviceId)
+      )
+    : trimmed(machineOrIdentity);
   let hash = 0x811c9dc5;
   for (let index = 0; index < input.length; index += 1) {
     hash ^= input.charCodeAt(index);

@@ -6,8 +6,6 @@
 
 import { initTwinViewer } from './digital-twin.js';
 import {
-    emailInput,
-    passwordInput,
     btnLogin,
     portalSidebar,
     sidebarToggle,
@@ -27,7 +25,6 @@ import {
     btnApplyFilter,
     btnClearFilter,
     btnCreate,
-    togglePassword,
     toggleNewPassword,
     newPassword,
     orionSection,
@@ -35,7 +32,7 @@ import {
     rolesSection
 } from './dom-elements.js';
 import { showDropdown, resetApp, switchTab, togglePasswordVisibility } from './ui-helpers.js';
-import { handleLogin, handleLoginKeyPress, resumeStoredSession } from './auth.js';
+import { handleLogin, resumeStoredSession, setupConnectivityMonitorNotice } from './auth.js';
 import { refreshUsersList, handleCreateUser } from './users.js';
 import { refreshLogsList, applyLogsFilter, clearLogsFilter } from './orion-logs.js';
 import { initInventory } from './inventory.js';
@@ -43,6 +40,7 @@ import { initRolesPermissions, refreshRolesPermissionsData } from './roles-permi
 import { initHistoricalData, refreshHistoricalData } from './historical-data.js';
 
 async function initializeApp() {
+    setupConnectivityMonitorNotice();
     setupTabNavigation();
     setupSidebarNavigation();
     setupPasswordToggleHandlers();
@@ -130,13 +128,9 @@ function setupSidebarNavigation() {
 }
 
 function setupPasswordToggleHandlers() {
-    togglePassword.onclick = function () {
-        togglePasswordVisibility(passwordInput, this);
-    };
-
-    toggleNewPassword.onclick = function () {
+    toggleNewPassword?.addEventListener('click', function () {
         togglePasswordVisibility(newPassword, this);
-    };
+    });
 }
 
 function setupUserMenuHandlers() {
@@ -162,9 +156,6 @@ function setupRefreshHandlers() {
 
 function setupAuthenticationHandlers() {
     btnLogin.onclick = handleLogin;
-
-    emailInput.addEventListener('keypress', handleLoginKeyPress);
-    passwordInput.addEventListener('keypress', handleLoginKeyPress);
 }
 
 function setupUserManagementHandlers() {

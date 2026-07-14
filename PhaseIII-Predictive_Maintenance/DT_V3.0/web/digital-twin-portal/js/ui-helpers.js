@@ -9,6 +9,7 @@ import {
     usersSection, rolesSection, auditSection, settingsSection, orionSection, historicalSection, digitalTwinSection, inventorySection
 } from './dom-elements.js';
 import { clearSession } from './config.js';
+import { stopDeviceActivityMonitor } from './device-activity.js';
 
 const TAB_MAP = {
     users: { button: usersTab, section: usersSection },
@@ -107,6 +108,7 @@ export function showDropdown(show = true) {
  * Reset the entire application (reload page)
  */
 export function resetApp() {
+    stopDeviceActivityMonitor();
     clearSession();
     window.location.assign("/auth/logout");
 }
@@ -153,22 +155,26 @@ function ensureAccessDeniedPlaceholder(name) {
 
     placeholder = document.createElement("div");
     placeholder.setAttribute(ACCESS_DENIED_PLACEHOLDER_ATTR, "true");
-    placeholder.className = "card bg-white rounded-lg p-6";
+    placeholder.className = "access-restricted-state";
     placeholder.innerHTML = `
-      <div class="flex items-start">
-        <div class="bg-amber-100 p-2 rounded-full mr-3">
-          <i class="fas fa-ban text-amber-600"></i>
-        </div>
-        <div>
-          <h2 class="text-xl font-semibold text-gray-800 mb-2">${escapeHtml(getTabLabel(name))}</h2>
-          <p class="text-gray-700 font-medium">This module is blocked for your current session.</p>
-          <p class="text-sm text-gray-600 mt-1">
-            Required capability: ${escapeHtml(TAB_ACCESS_DETAILS[name]?.capability || "module access")}
-            <span class="text-gray-400">·</span>
-            Check: <code class="text-xs text-gray-700">${escapeHtml(TAB_ACCESS_DETAILS[name]?.endpoint || "permission check")}</code>
-          </p>
-          <p class="text-sm text-gray-600 mt-2">${escapeHtml(TAB_ACCESS_DETAILS[name]?.recovery || "Ask an administrator to update your permissions, then sign in again.")}</p>
-        </div>
+      <div class="access-restricted-icon" aria-hidden="true">
+        <i class="fas fa-lock"></i>
+      </div>
+      <div class="access-restricted-copy">
+        <p class="access-restricted-eyebrow">Restricted</p>
+        <h2>${escapeHtml(getTabLabel(name))}</h2>
+        <p>Your current role does not include access to this module.</p>
+        <dl>
+          <div>
+            <dt>Required capability</dt>
+            <dd>${escapeHtml(TAB_ACCESS_DETAILS[name]?.capability || "Module access")}</dd>
+          </div>
+          <div>
+            <dt>Permission check</dt>
+            <dd><code>${escapeHtml(TAB_ACCESS_DETAILS[name]?.endpoint || "Role permission")}</code></dd>
+          </div>
+        </dl>
+        <p class="access-restricted-recovery">${escapeHtml(TAB_ACCESS_DETAILS[name]?.recovery || "Ask an administrator to update your role, then sign in again.")}</p>
       </div>
     `;
     section.appendChild(placeholder);
@@ -191,13 +197,28 @@ function setTabDeniedState(name, denied) {
 function applyTabAccessStyles() {
     Object.entries(TAB_MAP).forEach(([name, { button }]) => {
         const blocked = !canAccessTab(name);
-        button.classList.toggle("opacity-50", blocked);
-        button.classList.toggle("text-gray-400", blocked);
+        if (!button.dataset.accessLabel) {
+            button.dataset.accessLabel = button.getAttribute("aria-label") || getTabLabel(name);
+            button.dataset.accessTitle = button.getAttribute("title") || getTabLabel(name);
+        }
+        button.classList.remove("opacity-50", "text-gray-400");
+        button.classList.toggle("is-restricted", blocked);
+        let indicator = button.querySelector('[data-restricted-indicator="true"]');
+        if (blocked && !indicator) {
+            indicator = document.createElement("span");
+            indicator.dataset.restrictedIndicator = "true";
+            indicator.className = "sidebar-restricted-indicator";
+            indicator.innerHTML = '<i class="fas fa-lock" aria-hidden="true"></i><span>Restricted</span>';
+            button.appendChild(indicator);
+        }
+        indicator?.classList.toggle("hidden", !blocked);
         if (blocked) {
             const details = TAB_ACCESS_DETAILS[name];
-            button.title = `${details?.label || getTabLabel(name)} is blocked. Required: ${details?.capability || "module access"}.`;
+            button.title = `${details?.label || getTabLabel(name)} is restricted. Required: ${details?.capability || "module access"}.`;
+            button.setAttribute("aria-label", `${button.dataset.accessLabel}, Restricted`);
         } else {
-            button.removeAttribute("title");
+            button.title = button.dataset.accessTitle;
+            button.setAttribute("aria-label", button.dataset.accessLabel);
         }
     });
 }

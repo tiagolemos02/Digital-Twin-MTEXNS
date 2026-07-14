@@ -76,6 +76,11 @@ import {
   resolveAssetIdentity,
   validateAssetId
 } from './machine-identity.js';
+import {
+  renderConnectivityBadge,
+  resolveConnectivity
+} from './connectivity-status.js';
+import { validateIAmAliveMapping } from './machine-telemetry.js';
 
 let serviceGroups = [];
 let machines = [];
@@ -186,7 +191,10 @@ function buildRegisteredMachinesSnapshot() {
     staticAttributes: Array.isArray(machine.staticAttributes)
       ? machine.staticAttributes.map((attr) => ({ ...attr }))
       : [],
-    machineStatus: machine.machineStatus ? { ...machine.machineStatus } : { ...DEFAULT_MACHINE_STATUS }
+    machineStatus: machine.machineStatus ? { ...machine.machineStatus } : { ...DEFAULT_MACHINE_STATUS },
+    connectivity: machine.connectivity
+      ? { ...machine.connectivity }
+      : resolveConnectivity({ reason: 'missing-iamalive' })
   }));
 }
 
@@ -1278,6 +1286,11 @@ function buildMachineRegistrationDraft({ showErrors = true, validateDuplicate = 
       message: 'Fix the telemetry attributes JSON before reviewing the payload.'
     };
   }
+  const iamaliveMapping = validateIAmAliveMapping(attributes);
+  if (!iamaliveMapping.valid) {
+    if (showErrors) showMessage(machineMsg, iamaliveMapping.error);
+    return { ready: false, message: iamaliveMapping.error };
+  }
 
   const defaultStaticAttributes = buildDefaultStaticAttributes({
     friendlyName,
@@ -1485,26 +1498,31 @@ function renderServiceGroups() {
  * Render the machines table.
  */
 function updateMachineStatusesFromStore() {
-  if (!machines.length) return;
+  const visibleMachines = getVisibleMachines();
+  if (!visibleMachines.length) return;
   const now = Date.now();
 
-  machines.forEach((machine) => {
+  visibleMachines.forEach((machine) => {
     const activity =
       getDeviceActivity(machine.entityName, { now }) ||
       getDeviceActivity(machine.deviceId, { now });
 
     if (activity) {
-      machine.lastSeen = activity.lastUpdateIso || '';
-      machine.lastSeenAttribute = activity.lastUpdateAttribute || '';
-      machine.activityAgeMs = activity.ageMs ?? null;
-      machine.orionAttributeCount = typeof activity.attributeCount === 'number' ? activity.attributeCount : null;
+      machine.lastSeen = activity.lastContactIso || '';
+      machine.lastSeenAttribute = activity.source || '';
+      machine.activityAgeMs = activity.connectivity?.ageMs ?? null;
+      machine.connectivity = activity.connectivity || resolveConnectivity({ reason: activity.reason });
       machine.machineStatus = activity.machineStatus || DEFAULT_MACHINE_STATUS;
+      machine.lastOperationalUpdateIso = activity.lastOperationalUpdateIso || '';
+      machine.monitoringDelayed = Boolean(activity.monitoringDelayed);
     } else {
       machine.lastSeen = '';
       machine.lastSeenAttribute = '';
       machine.activityAgeMs = null;
-      machine.orionAttributeCount = null;
+      machine.connectivity = resolveConnectivity({ reason: 'missing-iamalive' });
       machine.machineStatus = DEFAULT_MACHINE_STATUS;
+      machine.lastOperationalUpdateIso = '';
+      machine.monitoringDelayed = false;
     }
   });
 }
@@ -1516,7 +1534,7 @@ function renderMachines() {
 
   if (!machines.length) {
     machinesTableBody.innerHTML =
-      "<tr><td colspan='6' class='px-5 py-4 text-center text-gray-500'>No machines registered.</td></tr>";
+      "<tr><td colspan='7' class='px-5 py-4 text-center text-gray-500'>No machines registered.</td></tr>";
   } else {
     const rows = machines
       .slice()
@@ -1548,12 +1566,21 @@ function renderMachines() {
 
         if (machine.lastSeen) {
           const lastSeenTime = formatLastSeen(machine.lastSeen);
-          const attributeLabel = asNonEmptyString(machine.lastSeenAttribute)
-            ? ` (${escapeHtml(machine.lastSeenAttribute)})`
-            : '';
           details.push(
-            `<div class="text-xs text-gray-500 mt-2">Last data${attributeLabel}: ${escapeHtml(
+            `<div class="text-xs text-gray-500 mt-2">Last contact: ${escapeHtml(
               lastSeenTime
+            )}</div>`
+          );
+        } else {
+          details.push(
+            '<div class="text-xs text-gray-500 mt-2">No valid <code>iamalive</code> received.</div>'
+          );
+        }
+
+        if (machine.lastOperationalUpdateIso) {
+          details.push(
+            `<div class="text-xs text-gray-500 mt-1">Operational state reported: ${escapeHtml(
+              formatLastSeen(machine.lastOperationalUpdateIso)
             )}</div>`
           );
         }
@@ -1609,6 +1636,7 @@ function renderMachines() {
             <div>${escapeHtml(serviceLabel)}</div>
             ${serviceDetails.join('')}
           </td>
+          <td class="px-5 py-3 text-sm">${renderConnectivityBadge(machine.connectivity)}</td>
           <td class="px-5 py-3 text-sm">${renderMachineStatusBadge(machine.machineStatus || DEFAULT_MACHINE_STATUS)}</td>
           <td class="px-5 py-3 text-sm text-gray-700">${details.join('')}</td>
           <td class="px-5 py-3 text-sm text-right whitespace-nowrap">
@@ -2681,7 +2709,7 @@ function renderServiceGroupError(err) {
 function setMachinesLoading() {
   if (!machinesTableBody) return;
   machinesTableBody.innerHTML =
-    "<tr><td colspan='6' class='px-5 py-4 text-center'><i class='fas fa-spinner loading-spinner text-indigo-600'></i></td></tr>";
+    "<tr><td colspan='7' class='px-5 py-4 text-center'><i class='fas fa-spinner loading-spinner text-indigo-600'></i></td></tr>";
 }
 
 /**
@@ -2690,7 +2718,7 @@ function setMachinesLoading() {
 function renderMachinesError(err) {
   if (!machinesTableBody) return;
   const message = escapeHtml(err.message || 'Unknown error');
-  machinesTableBody.innerHTML = `<tr><td colspan='6' class='px-5 py-4 text-center text-sm text-red-500'>${message}</td></tr>`;
+  machinesTableBody.innerHTML = `<tr><td colspan='7' class='px-5 py-4 text-center text-sm text-red-500'>${message}</td></tr>`;
 }
 
 /**

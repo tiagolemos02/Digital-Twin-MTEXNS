@@ -16,12 +16,13 @@ export function buildFiwareHeaders(extra = {}) {
   };
 }
 
-export function apiFetch(path, { method = 'GET', headers = {}, body } = {}) {
+export function apiFetch(path, { method = 'GET', headers = {}, body, signal } = {}) {
   const url = /^https?:\/\//i.test(path) ? path : joinFiwareUrl(path);
   const requestInit = {
     method,
     headers: buildFiwareHeaders(headers),
-    credentials: 'include'
+    credentials: 'include',
+    ...(signal ? { signal } : {})
   };
 
   if (body !== undefined) {

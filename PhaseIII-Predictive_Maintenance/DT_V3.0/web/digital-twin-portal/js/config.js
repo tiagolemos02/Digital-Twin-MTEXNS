@@ -18,6 +18,7 @@ export const IOT_AGENT_PROTOCOL = "IoTA-JSON";
 
 const runtimeConfig = typeof window !== "undefined" ? (window.__DT_RUNTIME_CONFIG__ || {}) : {};
 export const KEYROCK_CLIENT_ID = runtimeConfig.KEYROCK_CLIENT_ID || "";
+export const FACTORY_TIME_ZONE = runtimeConfig.FACTORY_TIME_ZONE || "Europe/Lisbon";
 
 // FIWARE Service Configuration
 export const FIWARE_SERVICE = "openiot";

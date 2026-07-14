@@ -6,12 +6,12 @@
 
 // Login Section Elements
 export const loginSection = document.getElementById("loginSection");
-export const emailInput = document.getElementById("email");
-export const passwordInput = document.getElementById("password");
 export const btnLogin = document.getElementById("btnLogin");
 export const loginBtnText = document.getElementById("loginBtnText");
 export const loginSpinner = document.getElementById("loginSpinner");
 export const loginMsg = document.getElementById("loginMsg");
+export const portalShell = document.getElementById("portalShell");
+export const connectivityMonitorNotice = document.getElementById("connectivityMonitorNotice");
 
 // User Menu Elements
 export const portalSidebar = document.getElementById("portalSidebar");
@@ -133,7 +133,6 @@ export const historicalTableBody = document.getElementById("historicalTableBody"
 export const historicalMessage = document.getElementById("historicalMessage");
 
 // Password Toggle Elements (accessed by ID in functions)
-export const togglePassword = document.getElementById("togglePassword");
 export const toggleNewPassword = document.getElementById("toggleNewPassword");
 
 // Create User Form Reference

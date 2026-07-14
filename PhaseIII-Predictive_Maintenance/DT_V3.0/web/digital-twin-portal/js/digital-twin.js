@@ -1,5 +1,6 @@
 import { subscribeRegisteredMachines } from './inventory.js';
 import { renderMachineStatusBadge } from './machine-status.js';
+import { formatConnectivityAge, renderConnectivityBadge } from './connectivity-status.js';
 import {
   cloneLayout,
   moveMachine,
@@ -46,7 +47,10 @@ function queryElements() {
     inspectorName: byId('twinInspectorName'),
     inspectorDeviceId: byId('twinInspectorDeviceId'),
     inspectorEntityId: byId('twinInspectorEntityId'),
+    inspectorConnectivity: byId('twinInspectorConnectivity'),
+    inspectorLastContact: byId('twinInspectorLastContact'),
     inspectorStatus: byId('twinInspectorStatus'),
+    inspectorOperationalUpdated: byId('twinInspectorOperationalUpdated'),
     closeInspector: byId('twinCloseInspector'),
     viewer: byId('machineViewer'),
     viewerLoader: byId('twinLoader')
@@ -57,6 +61,16 @@ function responseError(response, fallback) {
   return response.json()
     .then((payload) => payload?.error || fallback)
     .catch(() => fallback);
+}
+
+function formatInspectorTimestamp(value) {
+  if (!value) return 'Not available';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Not available';
+  return new Intl.DateTimeFormat('en-GB', {
+    dateStyle: 'medium',
+    timeStyle: 'medium'
+  }).format(date);
 }
 
 async function fetchPersonalLayout() {
@@ -200,8 +214,19 @@ export function initTwinViewer({ onProvisionMachine } = {}) {
     if (elements.inspectorName) elements.inspectorName.textContent = machine.friendlyName || '—';
     if (elements.inspectorDeviceId) elements.inspectorDeviceId.textContent = machine.deviceId || '—';
     if (elements.inspectorEntityId) elements.inspectorEntityId.textContent = machine.entityName || '—';
+    if (elements.inspectorConnectivity) {
+      elements.inspectorConnectivity.innerHTML = renderConnectivityBadge(machine.connectivity);
+    }
+    if (elements.inspectorLastContact) {
+      elements.inspectorLastContact.textContent = machine.connectivity?.ageMs == null
+        ? 'No valid iamalive received'
+        : `${formatInspectorTimestamp(machine.lastSeen)} (${formatConnectivityAge(machine.connectivity.ageMs)})`;
+    }
     if (elements.inspectorStatus) {
       elements.inspectorStatus.innerHTML = renderMachineStatusBadge(machine.machineStatus);
+    }
+    if (elements.inspectorOperationalUpdated) {
+      elements.inspectorOperationalUpdated.textContent = formatInspectorTimestamp(machine.lastOperationalUpdateIso);
     }
   }
 

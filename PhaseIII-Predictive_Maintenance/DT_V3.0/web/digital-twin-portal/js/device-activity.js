@@ -1,173 +1,290 @@
-import { ENTITY_TYPE, sessionToken } from './config.js';
+import { ENTITY_TYPE, FACTORY_TIME_ZONE, sessionToken } from './config.js';
 import { apiFetch } from './api-client.js';
 import { extractMachineStatusFromEntity } from './machine-status.js';
+import {
+  CONNECTIVITY_OFFLINE_AFTER_MS,
+  resolveConnectivity
+} from './connectivity-status.js';
 
-export const OFFLINE_THRESHOLD_MS = 5 * 60 * 1000;
+export const ACTIVITY_POLL_INTERVAL_MS = 30 * 1000;
+export const MONITOR_FAILURE_LIMIT = 3;
+export const OFFLINE_THRESHOLD_MS = CONNECTIVITY_OFFLINE_AFTER_MS;
 
 const activityStore = new Map();
 let lastFetchMs = 0;
+let consecutiveFailures = 0;
+let lastMonitorError = '';
+let pollTimer = null;
+let pollInFlight = false;
+let pollAbortController = null;
+let visibilityHandler = null;
 
-function toTimestamp(value) {
-  if (value === null || value === undefined) return null;
-  if (value instanceof Date) return Number.isFinite(value.getTime()) ? value.getTime() : null;
-  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
-  if (typeof value === 'string') {
-    const parsed = Date.parse(value);
+function rawValue(value) {
+  if (value && typeof value === 'object' && Object.prototype.hasOwnProperty.call(value, 'value')) {
+    return rawValue(value.value);
+  }
+  return value;
+}
+
+function findAttribute(entity, expectedName) {
+  const normalizedExpected = String(expectedName).toLowerCase();
+  return Object.entries(entity || {}).find(([name]) => String(name).toLowerCase() === normalizedExpected)?.[1];
+}
+
+function timezoneOffsetMs(date, timeZone) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hourCycle: 'h23'
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.filter((part) => part.type !== 'literal').map((part) => [part.type, part.value]));
+  const representedAsUtc = Date.UTC(
+    Number(values.year), Number(values.month) - 1, Number(values.day),
+    Number(values.hour), Number(values.minute), Number(values.second)
+  );
+  return representedAsUtc - date.getTime();
+}
+
+function parseFactoryLocalTimestamp(value, timeZone) {
+  const match = String(value || '').trim().match(
+    /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?$/
+  );
+  if (!match) return null;
+  const [, year, month, day, hour, minute, second, milliseconds = '0'] = match;
+  const localAsUtc = Date.UTC(
+    Number(year), Number(month) - 1, Number(day),
+    Number(hour), Number(minute), Number(second), Number(milliseconds.padEnd(3, '0'))
+  );
+  let candidate = localAsUtc;
+  for (let index = 0; index < 2; index += 1) {
+    candidate = localAsUtc - timezoneOffsetMs(new Date(candidate), timeZone);
+  }
+  return Number.isFinite(candidate) ? candidate : null;
+}
+
+export function parseActivityTimestamp(value, { factoryTimeZone = FACTORY_TIME_ZONE } = {}) {
+  const resolved = rawValue(value);
+  if (resolved instanceof Date) return Number.isFinite(resolved.getTime()) ? resolved.getTime() : null;
+  if (typeof resolved === 'number') return Number.isFinite(resolved) ? resolved : null;
+  if (typeof resolved !== 'string' || !resolved.trim()) return null;
+  const normalized = resolved.trim();
+  if (/^\d{4}-\d{2}-\d{2}[T ][\d:.]+(?:Z|[+-]\d{2}:?\d{2})$/i.test(normalized)) {
+    const parsed = Date.parse(normalized.replace(' ', 'T'));
     return Number.isNaN(parsed) ? null : parsed;
   }
-  if (typeof value === 'object') {
-    if ('value' in value) return toTimestamp(value.value);
-    if ('observedAt' in value) return toTimestamp(value.observedAt);
-    if ('timestamp' in value) return toTimestamp(value.timestamp);
-  }
-  return null;
+  return parseFactoryLocalTimestamp(normalized, factoryTimeZone);
 }
 
-function bestTimestamp(...candidates) {
+function firstTimestamp(candidates, options) {
   for (const candidate of candidates) {
-    const ts = toTimestamp(candidate);
-    if (ts !== null) return ts;
+    const parsed = parseActivityTimestamp(candidate, options);
+    if (parsed !== null) return parsed;
   }
   return null;
 }
 
-function analyzeDevice(device = {}, now, offlineThresholdMs) {
-  const entityId = device.id || '';
+function attributeReceivedAt(attribute, options, entity = null) {
+  return firstTimestamp([
+    attribute?.metadata?.timestamp?.value,
+    attribute?.metadata?.timestamp,
+    attribute?.metadata?.TimeInstant?.value,
+    attribute?.metadata?.TimeInstant,
+    attribute?.metadata?.observedAt?.value,
+    attribute?.metadata?.observedAt,
+    attribute?.observedAt,
+    entity?.TimeInstant?.value,
+    entity?.TimeInstant
+  ], options);
+}
+
+export function extractIAmAliveContact(entity = {}, options = {}) {
+  const attribute = findAttribute(entity, 'iamalive');
+  if (attribute === undefined) {
+    return { lastContactMs: null, lastContactIso: '', source: '', machineValueIso: '', reason: 'missing-iamalive' };
+  }
+  const machineTimestamp = parseActivityTimestamp(rawValue(attribute), options);
+  if (machineTimestamp === null) {
+    return { lastContactMs: null, lastContactIso: '', source: '', machineValueIso: '', reason: 'invalid-iamalive' };
+  }
+  const receivedAt = attributeReceivedAt(attribute, options, entity);
+  const lastContactMs = receivedAt ?? machineTimestamp;
+  return {
+    lastContactMs,
+    lastContactIso: new Date(lastContactMs).toISOString(),
+    source: receivedAt === null ? 'machine-iamalive' : 'orion-received-at',
+    machineValueIso: new Date(machineTimestamp).toISOString(),
+    reason: ''
+  };
+}
+
+export function analyzeDevice(device = {}, { now = Date.now(), factoryTimeZone = FACTORY_TIME_ZONE } = {}) {
+  const entityId = String(device.id || '').trim();
   if (!entityId) return null;
+  const contact = extractIAmAliveContact(device, { factoryTimeZone });
   const machineStatus = extractMachineStatusFromEntity(device);
-
-  let latestMs = bestTimestamp(device.TimeInstant, device.timeInstant, device.observedAt);
-  let latestIso = latestMs !== null ? new Date(latestMs).toISOString() : '';
-  let latestSource = latestMs !== null ? 'TimeInstant' : '';
-
-  Object.entries(device).forEach(([attr, val]) => {
-    if (attr === 'id' || attr === 'type' || attr.toLowerCase() === 'timeinstant') return;
-
-    const attrTimestamp = bestTimestamp(
-      val?.metadata?.timestamp?.value,
-      val?.metadata?.timestamp,
-      val?.metadata?.TimeInstant?.value,
-      val?.metadata?.TimeInstant,
-      val?.TimeInstant,
-      val?.observedAt,
-      val?.value?.observedAt
-    );
-
-    if (attrTimestamp !== null && (latestMs === null || attrTimestamp > latestMs)) {
-      latestMs = attrTimestamp;
-      latestIso = new Date(attrTimestamp).toISOString();
-      latestSource = attr;
-    }
-  });
-
-  const attributeCount = Object.keys(device).reduce((count, key) => {
-    if (key === 'id' || key === 'type' || key.toLowerCase() === 'timeinstant') {
-      return count;
-    }
-    return count + 1;
-  }, 0);
-
+  const statusAttribute = findAttribute(device, 'machine_status');
+  const lastOperationalUpdateMs = attributeReceivedAt(statusAttribute, { factoryTimeZone }, device);
+  const deviceId = String(rawValue(device.device_id ?? device.deviceId ?? device.DeviceID) || '').trim();
   return {
     entityId,
-    deviceId: device.device_id || device.deviceId || device.DeviceID || '',
-    lastUpdateMs: latestMs,
-    lastUpdateIso: latestIso,
-    lastUpdateAttribute: latestSource,
-    attributeCount,
+    deviceId,
+    ...contact,
     machineStatus,
     machineStatusCode: machineStatus.code,
     machineStatusName: machineStatus.name,
-    offlineThresholdMs,
+    lastOperationalUpdateMs,
+    lastOperationalUpdateIso: lastOperationalUpdateMs === null ? '' : new Date(lastOperationalUpdateMs).toISOString(),
+    connectivity: resolveConnectivity({
+      lastContactMs: contact.lastContactMs,
+      now,
+      reason: contact.reason
+    }),
     capturedAt: now
   };
 }
 
+function notifyActivityUpdated(now = Date.now()) {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent('device-activity-updated', {
+    detail: { timestamp: now, monitor: getDeviceActivityMonitorState() }
+  }));
+}
+
 export function updateActivityFromDevices(
   devices = [],
-  { now = Date.now(), offlineThresholdMs = OFFLINE_THRESHOLD_MS } = {}
+  { now = Date.now(), factoryTimeZone = FACTORY_TIME_ZONE, replace = true } = {}
 ) {
   const byEntity = new Map();
-
-  devices.forEach((device) => {
-    const fingerprint = analyzeDevice(device, now, offlineThresholdMs);
+  if (replace) activityStore.clear();
+  (Array.isArray(devices) ? devices : []).forEach((device) => {
+    const fingerprint = analyzeDevice(device, { now, factoryTimeZone });
     if (!fingerprint) return;
-
     byEntity.set(fingerprint.entityId, fingerprint);
     activityStore.set(fingerprint.entityId, fingerprint);
-
     if (fingerprint.deviceId && fingerprint.deviceId !== fingerprint.entityId) {
       activityStore.set(fingerprint.deviceId, fingerprint);
     }
   });
-
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(
-      new CustomEvent('device-activity-updated', { detail: { timestamp: now } })
-    );
-  }
-
+  lastFetchMs = now;
+  consecutiveFailures = 0;
+  lastMonitorError = '';
+  notifyActivityUpdated(now);
   return byEntity;
 }
 
-export function getDeviceActivity(
-  id,
-  { now = Date.now(), offlineThresholdMs = OFFLINE_THRESHOLD_MS } = {}
-) {
+export function getDeviceActivity(id, { now = Date.now() } = {}) {
   if (!id) return null;
   const record = activityStore.get(id);
   if (!record) return null;
-
-  const threshold = offlineThresholdMs ?? record.offlineThresholdMs ?? OFFLINE_THRESHOLD_MS;
-  const lastUpdateMs = record.lastUpdateMs ?? null;
-  const ageMs = lastUpdateMs === null ? null : Math.max(0, now - lastUpdateMs);
-  const offline = lastUpdateMs === null ? true : ageMs >= threshold;
-
+  const monitoringAvailable = consecutiveFailures < MONITOR_FAILURE_LIMIT;
+  const connectivity = resolveConnectivity({
+    lastContactMs: record.lastContactMs,
+    now,
+    monitoringAvailable,
+    reason: monitoringAvailable ? record.reason : 'monitoring-unavailable'
+  });
   return {
     ...record,
-    offlineThresholdMs: threshold,
-    ageMs,
-    offline,
-    status: offline ? 'Offline' : 'Online'
+    connectivity,
+    ageMs: connectivity.ageMs,
+    offline: connectivity.state === 'offline',
+    status: connectivity.label,
+    monitoringDelayed: consecutiveFailures > 0 && monitoringAvailable
   };
 }
 
 export function getDeviceStatus(id, options) {
-  const activity = getDeviceActivity(id, options);
-  return activity ? activity.status : null;
+  return getDeviceActivity(id, options)?.connectivity?.label || null;
 }
 
 export function getLastActivityFetchTime() {
   return lastFetchMs;
 }
 
+export function getDeviceActivityMonitorState() {
+  return {
+    available: consecutiveFailures < MONITOR_FAILURE_LIMIT,
+    delayed: consecutiveFailures > 0 && consecutiveFailures < MONITOR_FAILURE_LIMIT,
+    consecutiveFailures,
+    lastFetchMs,
+    error: lastMonitorError
+  };
+}
+
+export function recordDeviceActivityFailure(error, now = Date.now()) {
+  consecutiveFailures += 1;
+  lastMonitorError = error?.message || String(error || 'Unable to reach Orion.');
+  notifyActivityUpdated(now);
+  return getDeviceActivityMonitorState();
+}
+
+export function clearDeviceActivity() {
+  activityStore.clear();
+  lastFetchMs = 0;
+  consecutiveFailures = 0;
+  lastMonitorError = '';
+  notifyActivityUpdated();
+}
+
 export async function refreshDeviceActivity({
   entityType = ENTITY_TYPE,
   now = Date.now(),
-  offlineThresholdMs = OFFLINE_THRESHOLD_MS
+  signal
 } = {}) {
   if (!sessionToken) {
-    activityStore.clear();
-    lastFetchMs = 0;
+    clearDeviceActivity();
     return new Map();
   }
+  const query = new URLSearchParams({
+    type: entityType,
+    attrs: 'iamalive,machine_status,TimeInstant'
+  });
+  const response = await apiFetch(`/v2/entities?${query}`, { signal });
+  if (!response.ok) throw new Error(`Failed to refresh device activity (HTTP ${response.status})`);
+  const devices = await response.json();
+  return updateActivityFromDevices(Array.isArray(devices) ? devices : [], { now });
+}
 
-  const resp = await apiFetch(
-    `/v2/entities?type=${encodeURIComponent(entityType)}&options=keyValues`
-  );
-
-  if (!resp.ok) {
-    throw new Error(`Failed to refresh device activity (HTTP ${resp.status})`);
+export async function pollDeviceActivity(options = {}) {
+  if (pollInFlight || !sessionToken) return null;
+  pollInFlight = true;
+  pollAbortController = typeof AbortController === 'function' ? new AbortController() : null;
+  try {
+    return await refreshDeviceActivity({ ...options, signal: pollAbortController?.signal });
+  } catch (error) {
+    if (error?.name !== 'AbortError') recordDeviceActivityFailure(error);
+    return null;
+  } finally {
+    pollInFlight = false;
+    pollAbortController = null;
   }
+}
 
-  const devices = await resp.json();
-
-  if (!Array.isArray(devices)) {
-    activityStore.clear();
-    lastFetchMs = now;
-    return new Map();
+export function startDeviceActivityMonitor({ intervalMs = ACTIVITY_POLL_INTERVAL_MS } = {}) {
+  stopDeviceActivityMonitor({ clear: false });
+  void pollDeviceActivity();
+  pollTimer = setInterval(() => {
+    if (typeof document !== 'undefined' && document.hidden) return;
+    void pollDeviceActivity();
+  }, intervalMs);
+  if (typeof document !== 'undefined') {
+    visibilityHandler = () => {
+      if (!document.hidden) void pollDeviceActivity();
+    };
+    document.addEventListener('visibilitychange', visibilityHandler);
   }
+}
 
-  const activityMap = updateActivityFromDevices(devices, { now, offlineThresholdMs });
-  lastFetchMs = now;
-  return activityMap;
+export function stopDeviceActivityMonitor({ clear = true } = {}) {
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = null;
+  pollAbortController?.abort();
+  pollAbortController = null;
+  pollInFlight = false;
+  if (visibilityHandler && typeof document !== 'undefined') {
+    document.removeEventListener('visibilitychange', visibilityHandler);
+  }
+  visibilityHandler = null;
+  if (clear) clearDeviceActivity();
 }

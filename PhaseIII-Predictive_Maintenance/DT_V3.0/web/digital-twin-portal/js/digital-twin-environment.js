@@ -65,7 +65,7 @@ export function createFactoryEnvironment(scene, { cellSize }) {
     brand: new THREE.MeshBasicMaterial({ color: FACTORY_COLORS.brand })
   };
 
-  let gridMaterial = null;
+  let gridLines = null;
   let boundsKey = '';
   let editing = false;
 
@@ -108,9 +108,12 @@ export function createFactoryEnvironment(scene, { cellSize }) {
       gridPoints.push(new THREE.Vector3((bounds.minX - 0.5) * cellSize, 0.012, worldZ));
       gridPoints.push(new THREE.Vector3((bounds.maxX + 0.5) * cellSize, 0.012, worldZ));
     }
-    gridMaterial = materials.seam;
-    gridMaterial.opacity = editing ? 0.66 : 0.14;
-    group.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(gridPoints), gridMaterial));
+    gridLines = new THREE.LineSegments(
+      new THREE.BufferGeometry().setFromPoints(gridPoints),
+      materials.seam
+    );
+    gridLines.visible = editing;
+    group.add(gridLines);
 
     const aisleThickness = 0.11;
     const aisleWidth = cellSize * 0.12;
@@ -201,7 +204,7 @@ export function createFactoryEnvironment(scene, { cellSize }) {
     },
     setEditing(nextEditing) {
       editing = Boolean(nextEditing);
-      if (gridMaterial) gridMaterial.opacity = editing ? 0.66 : 0.14;
+      if (gridLines) gridLines.visible = editing;
     },
     destroy() {
       scene.remove(group);
