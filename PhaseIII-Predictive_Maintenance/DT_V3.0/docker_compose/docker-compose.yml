@@ -372,12 +372,16 @@ services:
     image: ${IOT_AGENT_IMAGE}
     container_name: fiware-custom-agent
     hostname: iot-agent
+    restart: unless-stopped
+    mem_limit: ${IOT_AGENT_MEMORY_LIMIT:-1g}
+    stop_grace_period: ${IOT_AGENT_STOP_GRACE_PERIOD:-15s}
     depends_on:
       - mongo-db
       - mosquitto
     expose:
       - "4041"
     environment:
+      - NODE_OPTIONS=${IOT_AGENT_NODE_OPTIONS:---max-old-space-size=768}
       - IOTA_CB_HOST=orion-v2
       - IOTA_CB_PORT=1026
       - IOTA_NORTH_PORT=4041
@@ -388,6 +392,15 @@ services:
       - IOTA_MONGO_DB=iotagentjson?authSource=admin
       - IOTA_MQTT_HOST=mosquitto
       - IOTA_MQTT_PORT=1883
+      - IOTA_MQTT_PROTOCOL=mqtt
+      - IOTA_AMQP_DISABLED=true
+      - IOTA_MQTT_UPDATE_CONCURRENCY=${IOTA_MQTT_UPDATE_CONCURRENCY:-10}
+      - IOTA_MQTT_MAX_PENDING=${IOTA_MQTT_MAX_PENDING:-1000}
+      - IOTA_MQTT_MAX_PAYLOAD_BYTES=${IOTA_MQTT_MAX_PAYLOAD_BYTES:-262144}
+      - IOTA_MQTT_LIMIT_CACHE_MAX_ENTRIES=${IOTA_MQTT_LIMIT_CACHE_MAX_ENTRIES:-10000}
+      - IOTA_MQTT_WARNING_INTERVAL_MS=${IOTA_MQTT_WARNING_INTERVAL_MS:-300000}
+      - IOTA_MQTT_QUEUE_LOG_INTERVAL_MS=${IOTA_MQTT_QUEUE_LOG_INTERVAL_MS:-60000}
+      - IOTA_MQTT_SHUTDOWN_TIMEOUT_MS=${IOTA_MQTT_SHUTDOWN_TIMEOUT_MS:-5000}
       - IOTA_DEFAULT_TRANSPORT=MQTT
       - IOTA_LOG_LEVEL=${IOTA_LOG_LEVEL}
       - IOTA_DEFAULT_EXPRESSION_LANGUAGE=jexl
