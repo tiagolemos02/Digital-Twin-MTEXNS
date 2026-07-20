@@ -27,20 +27,24 @@ import {
     btnCreate,
     toggleNewPassword,
     newPassword,
-    orionSection,
     historicalSection,
     rolesSection
 } from './dom-elements.js';
 import { showDropdown, resetApp, switchTab, togglePasswordVisibility } from './ui-helpers.js';
 import { handleLogin, resumeStoredSession, setupConnectivityMonitorNotice } from './auth.js';
 import { refreshUsersList, handleCreateUser } from './users.js';
-import { refreshLogsList, applyLogsFilter, clearLogsFilter } from './orion-logs.js';
+import { initOrionLogs, refreshLogsList, applyLogsFilter, clearLogsFilter } from './orion-logs.js';
 import { initInventory } from './inventory.js';
 import { initRolesPermissions, refreshRolesPermissionsData } from './roles-permissions.js';
 import { initHistoricalData, refreshHistoricalData } from './historical-data.js';
+import {
+    requestDeviceActivityRefresh,
+    setDeviceActivityTelemetryMode
+} from './device-activity.js';
 
 async function initializeApp() {
     setupConnectivityMonitorNotice();
+    setupDeviceActivityTabCoordination();
     setupTabNavigation();
     setupSidebarNavigation();
     setupPasswordToggleHandlers();
@@ -49,11 +53,7 @@ async function initializeApp() {
     setupRefreshHandlers();
     initRolesPermissions();
     initHistoricalData();
-    setInterval(() => {
-        if (!orionSection.classList.contains('hidden')) {
-            refreshLogsList();
-        }
-    }, 1500);
+    initOrionLogs();
     setupAuthenticationHandlers();
     setupUserManagementHandlers();
     initTwinViewer({
@@ -73,6 +73,24 @@ async function initializeApp() {
     await resumeStoredSession();
 
     console.log('Digital Twin Security Portal initialized successfully');
+}
+
+function setupDeviceActivityTabCoordination() {
+    window.addEventListener('portal-tab-changed', (event) => {
+        const { name, hasAccess } = event.detail || {};
+        if (!hasAccess) return;
+
+        const includeTelemetry = name === 'orion';
+        void setDeviceActivityTelemetryMode(includeTelemetry, { refresh: false });
+
+        if (name === 'orion') {
+            void refreshLogsList();
+            return;
+        }
+        if (['inventory', 'digitalTwin'].includes(name)) {
+            void requestDeviceActivityRefresh({ includeTelemetry: false });
+        }
+    });
 }
 
 function setupTabNavigation() {

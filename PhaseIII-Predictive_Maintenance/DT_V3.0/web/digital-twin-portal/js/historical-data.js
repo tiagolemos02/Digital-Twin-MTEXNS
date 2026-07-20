@@ -16,6 +16,7 @@ import {
 } from './dom-elements.js';
 import { getRegisteredMachines, getMachineLabel } from './inventory.js';
 import { formatHttpError, formatThrownError } from './error-messages.js';
+import { getGeneratedTelemetryAttributes } from './machine-telemetry.js';
 
 let selectedEntityId = '';
 const AUTO_REFRESH_MS = 5 * 1000;
@@ -114,6 +115,17 @@ function getTelemetryAttributeOptions(machine) {
       value,
       label: registeredName || objectIdLastSegment,
       queryAttrs
+    });
+  }
+
+  for (const attr of getGeneratedTelemetryAttributes(machine)) {
+    const value = String(attr.name || '').trim();
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    options.push({
+      value,
+      label: `${value} (read-only limit)`,
+      queryAttrs: [value]
     });
   }
 

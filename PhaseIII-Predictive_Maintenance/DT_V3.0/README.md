@@ -1,6 +1,14 @@
-# Phase III - Predictive Maintenance v0.7.1
+# Phase III - Predictive Maintenance v0.7.3
 
 **This phase starts the predictive maintenance roadmap by adding the historical telemetry foundation required for later machine learning and tightening the secured operator portal around that foundation.**
+
+Version `0.7.3` fixes live machine-state synchronization across Current State, Machines In Use, and the 3D Digital Twin. All three views now use one shared activity source, refresh every four seconds, and preserve their current filters, selection, camera, hover, and layout state while data changes.
+
+Version `0.7.3` does not change connectivity thresholds, machine operational-state mappings, MQTT payloads, IoT Agent behavior, FIWARE security, 3D layout persistence, or predictive-maintenance calculations.
+
+Version `0.7.2` adapts the custom IoT Agent to the immutable MQTT contract of the real machines. Bounded JSON metrics are normalized into a numeric operational value plus independently stored minimum and maximum limits, while bounded queues and runtime limits prevent telemetry bursts from causing unbounded heap growth.
+
+Version `0.7.2` does not change real-machine MQTT topics or payloads, automatic provisioning mappings, the MQTT simulator payload contract, FIWARE authentication/authorization, or predictive-maintenance calculations.
 
 Version `0.7.1` is a minimal compatibility and data-model correction. It standardizes the machine attribute builders on the NGSI types used by this project and changes the MQTT simulator's `maximum/value` counters from escaped text to real structured JSON values.
 
@@ -22,11 +30,77 @@ The existing Phase II security model remains the baseline: browser traffic goes 
 
 **Phase**: `Phase III - Predictive Maintenance`
 
-**Version**: `0.7.1`
+**Version**: `0.7.3`
 
 **Author**: Tiago Lemos
 
 **Licence**: MIT
+
+---
+
+## Scope of v0.7.3
+
+### Implemented
+
+- Shared machine-activity source for Current State, Machines In Use, and the 3D Digital Twin
+- Common four-second refresh cycle replacing the independent 1.5-second Current State and slower inventory status timers
+- Lightweight Orion activity queries outside Current State, limited to `iamalive`, `machine_status`, and `TimeInstant`
+- Full Orion telemetry queries while Current State is visible, with the same response also updating shared connectivity and operational state
+- Exact canonical matching by the IoT Agent `entity_name`, with `device_id` used only as a fallback and no inferred entity URNs
+- Canonical inventory records updated before table rendering and 3D subscriber snapshots, preventing valid activity from being discarded with temporary merged objects
+- Immediate refresh when opening Current State, Machines & Services, or 3D Digital Twin; when returning to a visible browser tab; and after machine provision, edit, or deletion
+- Existing Current State filters and expanded rows preserved during refreshes
+- Existing 3D machine selection, hover, camera position, layout, and edit state preserved during status-only updates
+- Existing failure policy retained: two failed polls keep the last known state, while the third reports monitoring as unavailable without discarding the last operational state
+- Unit coverage for query modes, four-second polling, canonical entity matching, Device ID fallback, and in-place machine updates
+
+### Not Changed
+
+- Connectivity thresholds: Online through 2 minutes, Stale through 10 minutes, Offline after 10 minutes, and Unknown without a valid heartbeat
+- Operational-state code mappings or colors
+- MQTT topics, payloads, simulator behavior, or custom IoT Agent implementation
+- Orion, QuantumLeap, CrateDB, BFF, OAuth Authorization Code, Keyrock, PEP Proxy, or AuthzForce behavior
+- Personal 3D layout persistence, factory visuals, machine model, or predictive-maintenance scope
+
+This patch removes inconsistent `Unknown` values from inventory and 3D views by ensuring that every live portal surface reads the same activity record instead of updating disposable machine copies.
+
+---
+
+## Scope of v0.7.2
+
+### Implemented
+
+- Custom IoT Agent normalization for MQTT objects containing numeric `value` with optional `minimum` and `maximum`
+- Base telemetry attribute emitted as `Number`, with generated `<attribute>_minimum` and `<attribute>_maximum` `Number` attributes when the corresponding limits exist
+- Numeric strings converted to finite numbers without requiring any change to the real machine MQTT topics or payload format
+- Last valid Orion value preserved when `value` is invalid, and last valid limits preserved when later payloads omit them or provide invalid values
+- Unchanged limits suppressed after their first observation so static thresholds are not resent on every telemetry cycle
+- Unsupported bounded-object fields ignored with rate-limited warnings, while unrelated objects and arrays remain single `StructuredValue` attributes
+- Plain non-JSON MQTT payloads preserved as UTF-8 text
+- Size-limited bounded-metric cache and warning limiter
+- Bounded telemetry queue with per-machine ordering, coalescing by machine/attribute, global concurrency `10`, and at most `1000` pending unique pairs
+- MQTT payload size limit of `256 KiB`, periodic queue statistics, and bounded graceful shutdown
+- Portal discovery of generated limit attributes only after they exist in Orion
+- Generated limits shown as read-only values in the machine attributes view, accepted by registered-attribute filters, and available in Historical Data queries without adding them to Add/Edit Machine forms
+- Orion entity snapshots attached separately from IoT Agent registration records so existing machine editing and service-group behavior remains unchanged
+- Custom-agent Dockerfile changed to build the reviewed local checkout and pin `iotagent-node-lib` to the Node 16-compatible commit `78ad1289f5b4b3c1b611cae07d295f091e04788b`
+- Compose defaults for `restart: unless-stopped`, a `1 GB` container memory limit, a `768 MB` Node old-space limit, and the telemetry queue controls
+- Intended image tag changed to `lemostiago/custom-iotagent:3.7.1-mtexns` in `.env.example`
+- Custom-agent implementation notes added to `FIWARE-custom-agent/lib/README.md`
+- Unit tests added for bounded telemetry normalization, queue behavior, and portal generated-limit discovery
+
+### Not Changed
+
+- Real-machine topic contract `<deviceId>/state/<attribute>` or machine-generated payloads
+- Machine provisioning contract: bounded JSON telemetry remains provisioned as `StructuredValue`
+- MQTT simulator mappings and payload generation established by v0.7.1
+- Existing Add Machine and Edit Machine fields; generated limits are system-owned and read-only
+- Orion, QuantumLeap, CrateDB, BFF, OAuth Authorization Code, Keyrock, PEP Proxy, or AuthzForce implementations
+- Connectivity thresholds, 3D factory behavior, personal layout persistence, or predictive-maintenance logic
+
+The custom-agent tests, image build, container recreation, FIWARE integration tests, and soak tests are intentionally deferred until the owner transfers these files to the complete custom-agent repository and publishes the new image. Portal-only JavaScript tests can be executed independently.
+
+This patch retains the original machine interface while making bounded counters usable as numeric time series and keeping their maintenance limits available for later preventive and predictive analysis. The backpressure controls address the failure mode in which sustained MQTT work exhausted the Node.js heap.
 
 ---
 
@@ -253,6 +327,83 @@ This version focuses on ingestion correctness. Historical data and future ML wor
 - Dashboards for predictive maintenance
 
 This phase deliberately separates **data collection** from **prediction**. Predictive maintenance models need enough clean historical data first; this version creates that data layer.
+
+---
+
+## New in v0.7.3
+
+### ✅ Synchronized live machine activity
+
+What changed:
+
+- Current State, Machines In Use, and the 3D Digital Twin now consume the same connectivity and operational-state store.
+- Activity is refreshed every four seconds, with full telemetry requested only while Current State is visible.
+- Machine activity is resolved using the exact `entity_name` returned by the IoT Agent before falling back to `device_id`.
+- Inventory and 3D snapshots are updated from canonical machine records, while filters, expanded rows, machine selection, hover, camera, and layout remain stable.
+- Relevant tabs, browser visibility recovery, and successful machine mutations trigger an immediate refresh.
+
+Why this was done:
+
+- Current State already displayed valid Orion activity, but Machines In Use and the 3D Digital Twin continued to show `Unknown` because updates were applied to temporary merged machine objects.
+- Independent polling intervals allowed portal views to display different states for the same machine.
+- A shared activity source ensures that connectivity age, monitoring failures, and the last operational state have one consistent interpretation throughout the portal.
+
+---
+
+## New in v0.7.2
+
+### ✅ Numeric bounded telemetry with retained limits
+
+What changed:
+
+- A `StructuredValue` payload containing `value` and at least one of `minimum` or `maximum` is now normalized inside the custom IoT Agent.
+- The original attribute name receives the numeric operational value, while `_minimum` and `_maximum` attributes retain the available numeric limits.
+- Numeric strings are converted to real numbers; invalid values are rejected without overwriting the last valid Orion state.
+- Known limits are sent only on first observation or change, and missing or invalid later limits preserve the previous valid values.
+- JSON objects and arrays that do not follow this bounded-metric shape remain one `StructuredValue`.
+
+Why this was done:
+
+- The real machine MQTT contract cannot be changed and exposes maintenance counters as JSON objects.
+- Operational values need to be numeric time series for portal and historical analysis, while static limits are needed later for preventive and predictive maintenance.
+- Normalizing at the ingestion boundary keeps machine firmware, simulator payloads, provisioning forms, Orion consumers, and future analytics decoupled.
+
+---
+
+### ✅ MQTT backpressure and bounded memory behavior
+
+What changed:
+
+- Pending telemetry is coalesced by machine and attribute so only the newest waiting sample for that pair is retained.
+- Updates remain ordered per machine while up to 10 different machines can progress globally.
+- The queue, bounded-metric cache, warning limiter, and accepted MQTT payload size all have explicit limits.
+- Repeated malformed-data and drop warnings are rate-limited without logging payload contents.
+- Queue counters are logged periodically and shutdown has a finite drain interval.
+- Compose reserves 1 GB for the container and limits the Node old-space heap to 768 MB, with automatic restart unless explicitly stopped.
+
+Why this was done:
+
+- The previous direct message-to-update path allowed incoming work and object expansion to outpace Context Broker updates.
+- Increasing the heap alone would delay another out-of-memory failure without controlling the number of pending operations.
+- Coalescing is appropriate for live portal state because the latest pending sample is more useful than an unbounded backlog of obsolete intermediate values.
+
+---
+
+### ✅ Read-only limits in the secured portal
+
+What changed:
+
+- The portal discovers generated `_minimum` and `_maximum` attributes only when Orion actually exposes them.
+- Generated limits are displayed with their source, type, and current value in a dedicated read-only section.
+- The same attributes are accepted by registered-machine filters and offered in Historical Data.
+- Orion snapshots enrich IoT Agent inventory records through a separate `orionRaw` field instead of replacing registration data.
+- Add Machine and Edit Machine remain unchanged; operators never provision or edit generated limits manually.
+
+Why this was done:
+
+- Operators need visibility into the retained limits without confusing them with machine-provisioning inputs.
+- Checking the real Orion entity avoids inventing limit attributes for unrelated generic `StructuredValue` telemetry.
+- Keeping Orion state separate from IoT Agent registration preserves existing service-group and edit behavior.
 
 ---
 
@@ -1246,8 +1397,11 @@ The UI shows the registered friendly attribute name, but queries the stored obje
 | `web/digital-twin-portal/js/ui-helpers.js` | Adds Historical Data tab behavior, workflow tab access handling, access/profile helpers, and inline denied placeholders |
 | `web/digital-twin-portal/js/error-messages.js` | Centralizes recovery-oriented HTTP, network, and denied-state message formatting |
 | `web/digital-twin-portal/js/inventory.js` | Exposes reactive registered-machine metadata, controls Machines in Use, permits optional machine names, cleans saved placements after deprovisioning, enforces canonical entity IDs, and drives registration/status workflows |
-| `web/digital-twin-portal/js/device-activity.js` | Extracts live Orion activity and `machine_status` metadata for portal views |
-| `web/digital-twin-portal/js/orion-logs.js` | Renders Current State device headers with live machine status badges and recovery-oriented Orion/PEP errors |
+| `web/digital-twin-portal/js/device-activity.js` | Owns the shared four-second activity monitor, lightweight/full Orion query modes, failure state, and Current State telemetry snapshot |
+| `web/digital-twin-portal/js/device-activity.test.js` | Covers polling frequency, Orion query modes, heartbeat timestamps, operational-state separation, and monitoring failures |
+| `web/digital-twin-portal/js/machine-activity.js` | Applies shared activity to canonical inventory and Orion-fallback machine records using exact entity identity |
+| `web/digital-twin-portal/js/machine-activity.test.js` | Covers exact entity-name matching, Device ID fallback, and in-place canonical machine updates |
+| `web/digital-twin-portal/js/orion-logs.js` | Renders Current State from the shared full-telemetry snapshot while preserving filters and expanded rows |
 | `web/digital-twin-portal/js/users.js` | Uses recovery-oriented Keyrock user-management messages |
 | `web/digital-twin-portal/js/roles-permissions.js` | Uses recovery-oriented Keyrock role/permission-management messages and manages role color metadata, color validation, palette selection, custom hex preview, and colored assignment badges |
 | `web/digital-twin-portal/js/machine-status.js` | Defines machine status code mappings, RGB colors, dropdown options, parsing, and shared badge rendering |

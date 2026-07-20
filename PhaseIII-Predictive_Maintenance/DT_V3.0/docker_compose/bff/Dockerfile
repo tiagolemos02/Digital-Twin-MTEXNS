@@ -5,7 +5,7 @@ WORKDIR /app
 COPY package.json ./
 RUN npm install --omit=dev
 
-COPY server.js layout-store.js ./
+COPY server.js layout-store.js discovery-access.js ./
 
 EXPOSE 8001
 

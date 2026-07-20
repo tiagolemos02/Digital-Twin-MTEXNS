@@ -1,13 +1,31 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  ACTIVITY_POLL_INTERVAL_MS,
   analyzeDevice,
+  buildDeviceActivityQuery,
   clearDeviceActivity,
   extractIAmAliveContact,
   getDeviceActivity,
   recordDeviceActivityFailure,
   updateActivityFromDevices
 } from './device-activity.js';
+
+test('polls device activity every four seconds', () => {
+  assert.equal(ACTIVITY_POLL_INTERVAL_MS, 4_000);
+});
+
+test('builds lightweight and full telemetry Orion queries', () => {
+  const lightweight = buildDeviceActivityQuery({ entityType: 'Machine' });
+  assert.match(lightweight, /type=Machine/);
+  assert.match(lightweight, /attrs=iamalive%2Cmachine_status%2CTimeInstant/);
+  assert.doesNotMatch(lightweight, /options=keyValues/);
+
+  const full = buildDeviceActivityQuery({ entityType: 'Machine', includeTelemetry: true });
+  assert.match(full, /type=Machine/);
+  assert.match(full, /options=keyValues/);
+  assert.doesNotMatch(full, /attrs=/);
+});
 
 test('uses the Orion receive timestamp before the machine iamalive value', () => {
   const entity = {

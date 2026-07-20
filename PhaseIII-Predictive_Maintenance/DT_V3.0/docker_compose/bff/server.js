@@ -8,6 +8,7 @@ import {
   LayoutConflictError,
   LayoutValidationError
 } from "./layout-store.js";
+import { checkDeviceDiscoveryAccess } from "./discovery-access.js";
 
 const PORT = Number(process.env.BFF_PORT || process.env.PORT || 8001);
 const PUBLIC_BASE_URL = process.env.BFF_PUBLIC_BASE_URL || `http://localhost:${PORT}`;
@@ -19,6 +20,7 @@ const KEYROCK_CLIENT_SECRET = process.env.KEYROCK_CLIENT_SECRET || "";
 const REDIRECT_URI = process.env.BFF_REDIRECT_URI || `${PUBLIC_BASE_URL}/auth/callback`;
 const CALLBACK_PATH = new URL(REDIRECT_URI).pathname || "/auth/callback";
 const FIWARE_BASE_URL = process.env.BFF_FIWARE_BASE_URL || "http://pep-proxy:1027";
+const IOTA_SOUTHBOUND_BASE_URL = process.env.BFF_IOTA_SOUTHBOUND_BASE_URL || "http://iot-agent:7896";
 const ADMIN_ROLE_NAME = (process.env.BFF_ADMIN_ROLE_NAME || "Admin").toLowerCase();
 const ADMIN_NAME = process.env.BFF_KEYROCK_ADMIN_NAME || process.env.KEYROCK_ADMIN_EMAIL || "";
 const ADMIN_PASS = process.env.BFF_KEYROCK_ADMIN_PASS || process.env.KEYROCK_ADMIN_PASS || "";
@@ -583,6 +585,38 @@ app.delete("/bff/portal/digital-twin-layout/machines/:deviceId", requireAuthenti
     }
     console.error("Unable to remove machine from digital-twin layouts:", error);
     res.status(500).json({ error: "Unable to clean up digital-twin layouts." });
+  }
+});
+
+app.get("/bff/portal/discovered-devices", requireAuthenticatedSession, async (req, res) => {
+  const session = req.bffSession;
+
+  try {
+    const valid = await ensureAccessToken(session);
+    if (!valid) {
+      destroySession(req, res);
+      res.status(401).json({ error: "Session expired" });
+      return;
+    }
+
+    const permissionResponse = await checkDeviceDiscoveryAccess({
+      baseUrl: FIWARE_BASE_URL,
+      accessToken: session.accessToken,
+      headers: buildForwardHeaders(req)
+    });
+    if (!permissionResponse.ok) {
+      console.warn(`Device discovery access check failed with status ${permissionResponse.status}.`);
+      await relayFetchResponse(permissionResponse, res);
+      return;
+    }
+    await permissionResponse.arrayBuffer();
+
+    const discoveryUrl = new URL("/iot/discovered-devices", IOTA_SOUTHBOUND_BASE_URL).toString();
+    const upstream = await fetch(discoveryUrl, { headers: { Accept: "application/json" } });
+    await relayFetchResponse(upstream, res);
+  } catch (error) {
+    console.error("Unable to load MQTT-discovered Device IDs:", error);
+    res.status(502).json({ error: "Unable to load MQTT-discovered Device IDs." });
   }
 });
 

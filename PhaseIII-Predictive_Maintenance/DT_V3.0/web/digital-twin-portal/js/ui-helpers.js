@@ -243,6 +243,11 @@ export function switchTab(name) {
 
     setTabDeniedState(name, blocked);
     applyTabAccessStyles();
+    if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('portal-tab-changed', {
+            detail: { name, hasAccess: !blocked }
+        }));
+    }
     return !blocked;
 }
 

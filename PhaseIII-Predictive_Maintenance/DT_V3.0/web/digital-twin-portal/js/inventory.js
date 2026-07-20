@@ -59,11 +59,12 @@ import {
   sessionToken
 } from './config.js';
 import { apiFetch, buildFiwareHeaders } from './api-client.js';
+import { loadDiscoveredDevices } from './device-discovery.js';
 import {
-  refreshDeviceActivity,
   getDeviceActivity,
-  getLastActivityFetchTime
+  requestDeviceActivityRefresh
 } from './device-activity.js';
+import { applyMachineActivityCollection } from './machine-activity.js';
 import {
   DEFAULT_MACHINE_STATUS,
   getMachineStatusByCode,
@@ -80,7 +81,10 @@ import {
   renderConnectivityBadge,
   resolveConnectivity
 } from './connectivity-status.js';
-import { validateIAmAliveMapping } from './machine-telemetry.js';
+import {
+  getGeneratedTelemetryAttributes,
+  validateIAmAliveMapping
+} from './machine-telemetry.js';
 import {
   formatAttributeValue,
   inferCanonicalAttributeType,
@@ -93,12 +97,11 @@ let serviceGroups = [];
 let machines = [];
 let orionFallbackMachines = [];
 let allIotDevices = [];
+let discoveredDevices = [];
+let discoveredDevicesError = '';
 const registeredMachineSubscribers = new Set();
 let loadingServiceGroups = false;
 let loadingMachines = false;
-const ACTIVITY_REFRESH_MIN_INTERVAL_MS = 30 * 1000;
-const MACHINE_STATUS_REFRESH_INTERVAL_MS = 60 * 1000;
-let machineStatusIntervalId = null;
 let telemetryAttributeEntries = [];
 let staticAttributeEntries = [];
 let telemetryInputMode = 'manual';
@@ -186,7 +189,29 @@ function getPortalRegisteredDeviceIds(devices = allIotDevices) {
 }
 
 function getVisibleMachines() {
-  return machines.length ? machines : orionFallbackMachines;
+  if (!machines.length) return orionFallbackMachines;
+  if (!orionFallbackMachines.length) return machines;
+
+  const orionByEntity = new Map(
+    orionFallbackMachines
+      .filter((machine) => machine.entityName)
+      .map((machine) => [machine.entityName, machine])
+  );
+  const orionByDevice = new Map(
+    orionFallbackMachines
+      .filter((machine) => machine.deviceId)
+      .map((machine) => [machine.deviceId, machine])
+  );
+
+  return machines.map((machine) => {
+    const orionMachine = orionByEntity.get(machine.entityName)
+      || orionByDevice.get(machine.deviceId);
+    if (!orionMachine) return machine;
+    return {
+      ...machine,
+      orionRaw: orionMachine.orionRaw || orionMachine.raw
+    };
+  });
 }
 
 function buildRegisteredMachinesSnapshot() {
@@ -361,7 +386,6 @@ export function initInventory() {
 
   applyServiceDefaults();
   initializeAttributeInputs();
-  startMachineStatusTicker();
   initEditModals();
   updateMachinePayloadPreview();
   void loadInventory();
@@ -387,21 +411,11 @@ async function loadInventory() {
   renderServiceGroups();
   refreshServiceGroupOptions();
 
-  await fetchMachines();
+  await Promise.all([fetchMachines(), fetchDiscoveredDevices()]);
   renderMachines();
   // Refresh picker in case a service group was already selected when machines loaded.
   await handleServiceGroupPickerChange({ refreshDevices: false });
   updateMachinePayloadPreview();
-}
-
-function startMachineStatusTicker() {
-  if (machineStatusIntervalId || typeof setInterval !== 'function') return;
-  if (!machinesTableBody) return;
-
-  machineStatusIntervalId = setInterval(() => {
-    if (!machines.length || loadingMachines) return;
-    renderMachines();
-  }, MACHINE_STATUS_REFRESH_INTERVAL_MS);
 }
 
 /**
@@ -410,6 +424,7 @@ function startMachineStatusTicker() {
 function renderLoginRequiredState() {
   serviceGroups = [];
   machines = [];
+  discoveredDevices = [];
   notifyRegisteredMachines();
   updateCounts();
 
@@ -820,18 +835,6 @@ function renderStaticAttributeList() {
     .join('');
 }
 
-async function syncMachineActivityData() {
-  if (!machines.length) return;
-  const now = Date.now();
-  if (now - getLastActivityFetchTime() < ACTIVITY_REFRESH_MIN_INTERVAL_MS) return;
-
-  try {
-    await refreshDeviceActivity({ now });
-  } catch (error) {
-    console.warn('Unable to refresh device activity:', error);
-  }
-}
-
 /**
  * Fetch registered service groups.
  */
@@ -893,7 +896,6 @@ async function fetchMachines() {
     }
     machines = Array.from(machineMap.values());
     setLocalRegisteredMachineMetadata(machines);
-    await syncMachineActivityData();
     updateMachineStatusesFromStore();
     hideMessage(machineMsg);
   } catch (error) {
@@ -906,6 +908,17 @@ async function fetchMachines() {
   } finally {
     loadingMachines = false;
     notifyRegisteredMachines();
+  }
+}
+
+async function fetchDiscoveredDevices() {
+  try {
+    discoveredDevices = await loadDiscoveredDevices();
+    discoveredDevicesError = '';
+  } catch (error) {
+    console.error('Unable to load MQTT-discovered Device IDs:', error);
+    discoveredDevices = [];
+    discoveredDevicesError = error instanceof Error ? error.message : String(error);
   }
 }
 
@@ -1007,6 +1020,7 @@ async function handleServiceGroupSubmit(event) {
     await fetchServiceGroups();
     renderServiceGroups();
     refreshServiceGroupOptions(serviceKey);
+    await handleServiceGroupPickerChange();
   } catch (error) {
     console.error('IoT service group creation request failed:', error);
     showMessage(serviceGroupMsg, formatThrownError(error, IOT_CONTEXTS.createService));
@@ -1080,7 +1094,7 @@ async function handleDeleteServiceGroup(button, group) {
     renderServiceGroups();
     refreshServiceGroupOptions();
 
-    await fetchMachines();
+    await Promise.all([fetchMachines(), fetchDiscoveredDevices()]);
     renderMachines();
     handleServiceGroupPickerChange({ refreshDevices: false });
   } catch (error) {
@@ -1174,6 +1188,7 @@ async function handleDeleteMachine(button, machine) {
     showMessage(machineMsg, `Machine ${machine.deviceId} deleted successfully.`, false);
 
     await fetchMachines();
+    await requestDeviceActivityRefresh();
     renderMachines();
     handleServiceGroupPickerChange({ refreshDevices: false });
   } catch (error) {
@@ -1186,9 +1201,9 @@ async function handleDeleteMachine(button, machine) {
 }
 
 function handleDeviceActivityUpdated() {
-  if (loadingMachines || !machinesTableBody) return;
-  if (!machines.length) return;
-  renderMachines();
+  if (loadingMachines) return;
+  updateMachineStatusesFromStore();
+  if (machinesTableBody && machines.length) renderMachines();
   notifyRegisteredMachines();
 }
 
@@ -1428,6 +1443,7 @@ async function handleMachineSubmit(event) {
     showMessage(machineMsg, `Machine ${draft.deviceId} registered successfully.`, false);
 
     await fetchMachines();
+    await requestDeviceActivityRefresh();
     renderMachines();
     handleServiceGroupPickerChange({ refreshDevices: false }); // refresh picker to remove the just-registered device
   } catch (error) {
@@ -1511,33 +1527,9 @@ function renderServiceGroups() {
  * Render the machines table.
  */
 function updateMachineStatusesFromStore() {
-  const visibleMachines = getVisibleMachines();
-  if (!visibleMachines.length) return;
   const now = Date.now();
-
-  visibleMachines.forEach((machine) => {
-    const activity =
-      getDeviceActivity(machine.entityName, { now }) ||
-      getDeviceActivity(machine.deviceId, { now });
-
-    if (activity) {
-      machine.lastSeen = activity.lastContactIso || '';
-      machine.lastSeenAttribute = activity.source || '';
-      machine.activityAgeMs = activity.connectivity?.ageMs ?? null;
-      machine.connectivity = activity.connectivity || resolveConnectivity({ reason: activity.reason });
-      machine.machineStatus = activity.machineStatus || DEFAULT_MACHINE_STATUS;
-      machine.lastOperationalUpdateIso = activity.lastOperationalUpdateIso || '';
-      machine.monitoringDelayed = Boolean(activity.monitoringDelayed);
-    } else {
-      machine.lastSeen = '';
-      machine.lastSeenAttribute = '';
-      machine.activityAgeMs = null;
-      machine.connectivity = resolveConnectivity({ reason: 'missing-iamalive' });
-      machine.machineStatus = DEFAULT_MACHINE_STATUS;
-      machine.lastOperationalUpdateIso = '';
-      machine.monitoringDelayed = false;
-    }
-  });
+  applyMachineActivityCollection(machines, getDeviceActivity, { now });
+  applyMachineActivityCollection(orionFallbackMachines, getDeviceActivity, { now });
 }
 
 function renderMachines() {
@@ -1724,6 +1716,9 @@ export function getRegisteredMachineAttributeNames(entityId) {
   for (const attr of (machine.staticAttributes || [])) {
     if (attr.name && !SYSTEM_STATIC_ATTR_NAMES.has(attr.name)) allowed.add(attr.name);
   }
+  for (const attr of getGeneratedTelemetryAttributes(machine)) {
+    allowed.add(attr.name);
+  }
   return allowed;
 }
 
@@ -1753,12 +1748,13 @@ export function syncRegisteredMachinesFromOrionEntities(entities = []) {
     .filter(Boolean);
 
   orionFallbackMachines = next.length ? mergeDuplicateDevices(next) : [];
-  if (!machines.length) notifyRegisteredMachines();
+  updateMachineStatusesFromStore();
+  notifyRegisteredMachines();
 }
 
 /**
  * When the service group select changes, populate the collapsible device
- * picker with unregistered IoT Agent devices that belong to that group.
+ * picker with devices from that group and neutral MQTT IDs awaiting assignment.
  */
 async function handleServiceGroupPickerChange(options = {}) {
   if (!deviceIdPickerWrapper || !deviceIdPickerList) return;
@@ -1784,7 +1780,7 @@ async function handleServiceGroupPickerChange(options = {}) {
       '<li class="px-3 py-2 text-xs text-gray-500">Loading devices...</li>';
     deviceIdPickerWrapper.classList.remove('hidden');
 
-    await fetchMachines();
+    await Promise.all([fetchMachines(), fetchDiscoveredDevices()]);
     renderMachines();
 
     if (refreshToken !== devicePickerRefreshToken) return;
@@ -1795,6 +1791,7 @@ async function handleServiceGroupPickerChange(options = {}) {
   // If a device's resource is unknown (empty), include it anyway — it may
   // belong to this group but the IoT Agent didn't return enough info to confirm.
   const registeredDeviceIds = getPortalRegisteredDeviceIds();
+  const iotAgentDeviceIds = new Set(allIotDevices.map((device) => device.deviceId).filter(Boolean));
   const candidatesById = new Map();
   for (const d of allIotDevices) {
     if (!d.deviceId || registeredDeviceIds.has(d.deviceId)) continue;
@@ -1810,11 +1807,21 @@ async function handleServiceGroupPickerChange(options = {}) {
     }
   }
 
+  for (const discovered of discoveredDevices) {
+    if (!discovered.deviceId || registeredDeviceIds.has(discovered.deviceId)) continue;
+    if (iotAgentDeviceIds.has(discovered.deviceId)) continue;
+    candidatesById.set(discovered.deviceId, discovered);
+  }
+
   const candidates = Array.from(candidatesById.values())
     .sort((a, b) => a.deviceId.localeCompare(b.deviceId));
 
   if (!candidates.length) {
-    deviceIdPickerWrapper.classList.add('hidden');
+    const message = discoveredDevicesError
+      ? 'Unable to load available Device IDs. Check the portal connection and try again.'
+      : 'No unassigned Device IDs are currently available for this service group.';
+    deviceIdPickerList.innerHTML = `<li class="px-3 py-2 text-xs text-gray-500">${escapeHtml(message)}</li>`;
+    deviceIdPickerWrapper.classList.remove('hidden');
     updateMachinePayloadPreview();
     return;
   }
@@ -2354,6 +2361,7 @@ function normalizeOrionEntityAsMachine(entity = {}) {
     statusPlaceholderCode: asNonEmptyString(staticMap.get('machineStatusPlaceholderCode')),
     statusPlaceholderName: asNonEmptyString(staticMap.get('machineStatusPlaceholderName')),
     status: asNonEmptyString(staticMap.get('operationalStatus')),
+    orionRaw: entity,
     raw: entity
   };
 }
@@ -3016,7 +3024,14 @@ function closeModal(id) {
  * Render color-coded JSON into a <pre> element using innerHTML.
  * Telemetry and custom static entries → indigo; system static entries → amber.
  */
-function renderAttrJson(jsonEl, telemetryAttrs, customStaticAttrs, systemStaticAttrs, showSystem) {
+function renderAttrJson(
+  jsonEl,
+  telemetryAttrs,
+  generatedTelemetryAttrs,
+  customStaticAttrs,
+  systemStaticAttrs,
+  showSystem
+) {
   function entryHtml(attr, colorClass) {
     const lines = JSON.stringify(attr, null, 2).split('\n');
     // indent continuation lines by 4 spaces (array member indentation)
@@ -3025,6 +3040,13 @@ function renderAttrJson(jsonEl, telemetryAttrs, customStaticAttrs, systemStaticA
   }
 
   const telEntries = telemetryAttrs.map((a) => entryHtml(a, 'text-indigo-600'));
+  const generatedEntries = generatedTelemetryAttrs.map((a) => entryHtml({
+    name: a.name,
+    type: a.type,
+    value: a.value,
+    source_attribute: a.sourceAttribute,
+    read_only: true
+  }, 'text-amber-600'));
   const customEntries = customStaticAttrs.map((a) => entryHtml(a, 'text-indigo-600'));
   const sysEntries = showSystem
     ? systemStaticAttrs.map((a) => entryHtml(a, 'text-amber-600'))
@@ -3037,9 +3059,12 @@ function renderAttrJson(jsonEl, telemetryAttrs, customStaticAttrs, systemStaticA
   const staticSection = staticEntries.length
     ? `[\n    ${staticEntries.join(',\n    ')}\n  ]`
     : '[]';
+  const generatedSection = generatedEntries.length
+    ? `[\n    ${generatedEntries.join(',\n    ')}\n  ]`
+    : '[]';
 
   jsonEl.innerHTML =
-    `{\n  "attributes": ${telSection},\n  "static_attributes": ${staticSection}\n}`;
+    `{\n  "attributes": ${telSection},\n  "generated_attributes": ${generatedSection},\n  "static_attributes": ${staticSection}\n}`;
 }
 
 function openMachineAttributesModal(machine) {
@@ -3049,13 +3074,13 @@ function openMachineAttributesModal(machine) {
   }
 
   const telemetryAttrs = Array.isArray(machine.attributes) ? machine.attributes : [];
+  const generatedTelemetryAttrs = getGeneratedTelemetryAttributes(machine);
   const customStaticAttrs = Array.isArray(machine.staticAttributes)
     ? machine.staticAttributes.filter((a) => !SYSTEM_STATIC_ATTR_NAMES.has(a.name))
     : [];
   const systemStaticAttrs = Array.isArray(machine.staticAttributes)
     ? machine.staticAttributes.filter((a) => SYSTEM_STATIC_ATTR_NAMES.has(a.name))
     : [];
-  const allStaticAttrs = Array.isArray(machine.staticAttributes) ? machine.staticAttributes : [];
 
   const visual = document.getElementById('machineAttributesVisual');
   if (visual) {
@@ -3085,6 +3110,18 @@ function openMachineAttributesModal(machine) {
           .join('')
       : `<tr><td colspan="3" class="py-2 text-xs text-gray-400 italic">None</td></tr>`;
 
+    const generatedTelemetryRows = generatedTelemetryAttrs
+      .map(
+        (a) => `
+        <tr class="border-b border-gray-100">
+          <td class="py-1.5 pr-3 text-xs font-mono text-gray-500">${escapeHtml(a.sourceAttribute)}</td>
+          <td class="py-1.5 pr-3 text-xs font-semibold text-amber-700">${escapeHtml(a.name)}</td>
+          <td class="py-1.5 pr-3 text-xs text-amber-600">${escapeHtml(a.type)}</td>
+          <td class="py-1.5 text-xs text-gray-600">${escapeHtml(formatAttributeValue(a.value))}</td>
+        </tr>`
+      )
+      .join('');
+
     const systemStaticRows = systemStaticAttrs
       .map(
         (a) => `
@@ -3096,7 +3133,9 @@ function openMachineAttributesModal(machine) {
       )
       .join('');
 
-    const hasSystemAttrs = systemStaticAttrs.length > 0;
+    const hasGeneratedTelemetryAttrs = generatedTelemetryAttrs.length > 0;
+    const hasSystemStaticAttrs = systemStaticAttrs.length > 0;
+    const hasSystemAttrs = hasGeneratedTelemetryAttrs || hasSystemStaticAttrs;
 
     visual.innerHTML = `
       <div class="flex items-center justify-between mb-3">
@@ -3109,7 +3148,7 @@ function openMachineAttributesModal(machine) {
             <span class="inline-block w-2.5 h-2.5 rounded-full bg-amber-400 shrink-0"></span>System-generated
           </span>` : ''}
         </div>
-        ${hasSystemAttrs ? `
+        ${hasSystemStaticAttrs ? `
         <button type="button" id="toggleSystemAttrsBtn"
           class="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 focus:outline-none"
           title="Show/hide system-generated attributes">
@@ -3128,6 +3167,19 @@ function openMachineAttributesModal(machine) {
         </thead>
         <tbody>${telemetryRows}</tbody>
       </table>
+      ${hasGeneratedTelemetryAttrs ? `
+      <h3 class="text-sm font-semibold text-gray-700 mb-2">Generated Limits <span class="font-normal text-gray-500">(read-only)</span></h3>
+      <table class="w-full mb-6 text-left">
+        <thead>
+          <tr class="text-xs text-gray-500 border-b border-gray-200">
+            <th class="pb-1 pr-3 font-medium">Source</th>
+            <th class="pb-1 pr-3 font-medium">Name</th>
+            <th class="pb-1 pr-3 font-medium">Type</th>
+            <th class="pb-1 font-medium">Value</th>
+          </tr>
+        </thead>
+        <tbody>${generatedTelemetryRows}</tbody>
+      </table>` : ''}
       <h3 class="text-sm font-semibold text-gray-700 mb-2">Static Attributes</h3>
       <table class="w-full text-left">
         <thead>
@@ -3140,7 +3192,7 @@ function openMachineAttributesModal(machine) {
         <tbody>${customStaticRows}${systemStaticRows}</tbody>
       </table>`;
 
-    if (hasSystemAttrs) {
+    if (hasSystemStaticAttrs) {
       const toggleBtn = visual.querySelector('#toggleSystemAttrsBtn');
       toggleBtn?.addEventListener('click', () => {
         const systemRows = visual.querySelectorAll('tr.system-attr');
@@ -3154,7 +3206,14 @@ function openMachineAttributesModal(machine) {
 
         const jsonEl = document.getElementById('machineAttributesJson');
         if (jsonEl) {
-          renderAttrJson(jsonEl, telemetryAttrs, customStaticAttrs, systemStaticAttrs, isHidden);
+          renderAttrJson(
+            jsonEl,
+            telemetryAttrs,
+            generatedTelemetryAttrs,
+            customStaticAttrs,
+            systemStaticAttrs,
+            isHidden
+          );
         }
       });
     }
@@ -3162,7 +3221,14 @@ function openMachineAttributesModal(machine) {
 
   const jsonEl = document.getElementById('machineAttributesJson');
   if (jsonEl) {
-    renderAttrJson(jsonEl, telemetryAttrs, customStaticAttrs, systemStaticAttrs, false);
+    renderAttrJson(
+      jsonEl,
+      telemetryAttrs,
+      generatedTelemetryAttrs,
+      customStaticAttrs,
+      systemStaticAttrs,
+      false
+    );
   }
 
   openModal('machineAttributesModal');
@@ -3645,6 +3711,7 @@ async function handleEditMachineSubmit(event) {
     showMessage(machineMsg, `Machine ${deviceId} updated successfully.`, false);
 
     await fetchMachines();
+    await requestDeviceActivityRefresh();
     renderMachines();
   } catch (error) {
     console.error('Error updating machine:', error);

@@ -553,8 +553,7 @@
                   >
                     <option value="">Add a service group first</option>
                   </select>
-                  <!-- Device picker: shown when a service group is selected and unregistered
-                       IoT Agent devices are available for it. -->
+                  <!-- Device picker: shown whenever a service group is selected. -->
                   <div id="deviceIdPickerWrapper" class="hidden mt-3">
                     <button
                       type="button"
@@ -567,7 +566,7 @@
                       Available device IDs from IoT Agent
                     </button>
                     <div id="deviceIdPickerPanel" class="hidden mt-2 border border-gray-200 rounded-lg bg-white shadow-sm">
-                      <ul id="deviceIdPickerList" class="py-1 max-h-40 overflow-y-auto divide-y divide-gray-100"></ul>
+                      <ul id="deviceIdPickerList" class="py-1 max-h-40 overflow-y-auto divide-y divide-gray-100" aria-live="polite"></ul>
                     </div>
                   </div>
                 </section>

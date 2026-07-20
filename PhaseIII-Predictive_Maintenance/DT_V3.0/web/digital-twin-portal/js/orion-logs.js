@@ -4,13 +4,16 @@
  * Handles device data retrieval, filtering, and rendering
  */
 
-import { ENTITY_TYPE, sessionToken } from './config.js';
-import { apiFetch } from './api-client.js';
+import { sessionToken } from './config.js';
 import {
-    logsTableBody, logsMessage, deviceFilter, attributeFilter
+    logsTableBody, logsMessage, deviceFilter, attributeFilter, orionSection
 } from './dom-elements.js';
-import { formatResponseError, formatThrownError } from './error-messages.js';
-import { getDeviceActivity } from './device-activity.js';
+import {
+    getDeviceActivity,
+    getDeviceActivityMonitorState,
+    getLatestDeviceEntitySnapshot,
+    requestDeviceActivityRefresh
+} from './device-activity.js';
 import {
     getRegisteredMachineEntityIds,
     getRegisteredMachineAttributeNames,
@@ -26,12 +29,7 @@ import {
 
 // In-memory storage for logs filtering
 let logsGrouped = [];
-const ORION_CONTEXT = {
-    system: 'PEP/Orion',
-    action: 'load current machine state',
-    endpoint: `GET /bff/fiware/v2/entities?type=${ENTITY_TYPE}&options=keyValues`,
-    recovery: 'Required permission: Orion Machine read. Ask an admin to grant it for this FIWARE service.'
-};
+let activityListenerBound = false;
 
 function escapeHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -60,11 +58,58 @@ function safeId(s) {
 }
 
 /**
- * Fetch and display logs from Orion Context Broker
- * Retrieves entity data and processes it for display
+ * Render the latest full telemetry snapshot owned by the activity monitor.
+ */
+function renderLatestCurrentState() {
+    const snapshot = getLatestDeviceEntitySnapshot();
+    if (!snapshot.fetchedAt) return false;
+
+    const rawDevices = snapshot.entities;
+    syncRegisteredMachinesFromOrionEntities(rawDevices);
+
+    const registeredIds = getRegisteredMachineEntityIds();
+    if (!registeredIds.size) {
+        logsTableBody.innerHTML =
+            "<tr><td colspan='5' class='px-6 py-4 text-center text-sm text-gray-500'>No registered machines. Add machines via the Inventory tab to see data here.</td></tr>";
+        firstLoad = true;
+        return true;
+    }
+
+    const devices = rawDevices.filter((device) => registeredIds.has(device.id));
+    if (!devices.length) {
+        logsTableBody.innerHTML =
+            "<tr><td colspan='5' class='px-6 py-4 text-center text-sm text-gray-500'>No Orion data found for registered machines.</td></tr>";
+        return true;
+    }
+
+    logsGrouped = processDeviceData(devices, Date.now());
+    populateDeviceFilter(logsGrouped);
+
+    const hasActiveFilter =
+        (deviceFilter.value && deviceFilter.value.length) ||
+        (attributeFilter.value && attributeFilter.value.trim().length);
+    if (hasActiveFilter) applyLogsFilter();
+    else renderLogs(logsGrouped);
+
+    logsMessage.textContent = snapshot.rttMs == null ? '' : `Network RTT: ${snapshot.rttMs} ms`;
+    logsMessage.className = "mt-3 text-sm text-gray-600";
+    firstLoad = false;
+    return true;
+}
+
+export function initOrionLogs() {
+    if (activityListenerBound || typeof window === 'undefined') return;
+    activityListenerBound = true;
+    window.addEventListener('device-activity-updated', () => {
+        if (!orionSection?.classList.contains('hidden')) renderLatestCurrentState();
+    });
+}
+
+/**
+ * Request a full telemetry refresh. Rendering happens from the shared snapshot.
  */
 export async function listLogs() {
-    logsMessage.textContent = "";
+    logsMessage.textContent = '';
     if (firstLoad) {
         logsTableBody.innerHTML =
             "<tr><td colspan='5' class='px-6 py-4 text-center'><i class='fas fa-spinner loading-spinner text-indigo-600'></i></td></tr>";
@@ -73,80 +118,19 @@ export async function listLogs() {
     if (!sessionToken) {
         logsTableBody.innerHTML =
             "<tr><td colspan='5' class='px-6 py-4 text-center text-sm text-gray-500'>Sign in to view Orion device activity.</td></tr>";
-        logsMessage.textContent = "PEP/Orion could not load current machine state. Next: sign in through Keyrock.";
-        logsMessage.className = "mt-3 text-sm text-gray-500";
+        logsMessage.textContent = 'PEP/Orion could not load current machine state. Next: sign in through Keyrock.';
+        logsMessage.className = 'mt-3 text-sm text-gray-500';
         firstLoad = true;
         return;
     }
 
-    try {
-        const t0 = performance.now();
-        const resp = await apiFetch(
-            `/v2/entities?type=${encodeURIComponent(ENTITY_TYPE)}&options=keyValues`
-        );
+    await requestDeviceActivityRefresh({ includeTelemetry: true });
+    if (renderLatestCurrentState()) return;
 
-        const rtt = Math.round(performance.now() - t0); // Network RTT in ms
-
-        if (!resp.ok) {
-            logsMessage.textContent = await formatResponseError(resp, ORION_CONTEXT);
-            logsMessage.className = "mt-3 text-sm text-red-600";
-            logsTableBody.innerHTML =
-                "<tr><td colspan='5' class='px-6 py-4 text-center text-sm text-red-500'>Could not load current state. Check the message above for the required permission.</td></tr>";
-            return;
-        }
-
-        const rawDevices = await resp.json();
-        syncRegisteredMachinesFromOrionEntities(rawDevices);
-
-        // Only show entities that were explicitly registered via the portal.
-        const registeredIds = getRegisteredMachineEntityIds();
-
-        if (!registeredIds.size) {
-            logsTableBody.innerHTML =
-                "<tr><td colspan='5' class='px-6 py-4 text-center text-sm text-gray-500'>No registered machines. Add machines via the Inventory tab to see data here.</td></tr>";
-            firstLoad = true;
-            return;
-        }
-
-        const devices = Array.isArray(rawDevices)
-            ? rawDevices.filter((d) => registeredIds.has(d.id))
-            : [];
-
-        if (!devices.length) {
-            logsTableBody.innerHTML =
-                "<tr><td colspan='5' class='px-6 py-4 text-center text-sm text-gray-500'>No Orion data found for registered machines.</td></tr>";
-            return;
-        }
-
-        const now = Date.now();
-
-        // Process and group the data
-        logsGrouped = processDeviceData(devices, now);
-
-        // Populate device filter dropdown
-        populateDeviceFilter(logsGrouped);
-
-        // If filters are active, keep them applied; otherwise render all
-        const hasActiveFilter =
-            (deviceFilter.value && deviceFilter.value.length) ||
-            (attributeFilter.value && attributeFilter.value.trim().length);
-        if (hasActiveFilter) {
-            applyLogsFilter();
-        } else {
-            renderLogs(logsGrouped);
-        }
-
-        // Show network performance info
-        logsMessage.textContent = `Network RTT: ${rtt} ms`;
-        logsMessage.className = "mt-3 text-sm text-gray-600";
-        firstLoad = false;
-
-    } catch (e) {
-        console.error("Error fetching logs:", e);
-        logsMessage.textContent = formatThrownError(e, ORION_CONTEXT);
-        logsMessage.className = "mt-3 text-sm text-red-600";
+    const monitor = getDeviceActivityMonitorState();
+    if (monitor.error) {
         logsTableBody.innerHTML =
-            "<tr><td colspan='5' class='px-6 py-4 text-center text-sm text-red-500'>Could not reach Orion through the PEP/BFF path.</td></tr>";
+            "<tr><td colspan='5' class='px-6 py-4 text-center text-sm text-gray-500'>Current state is temporarily unavailable.</td></tr>";
     }
 }
 
@@ -375,5 +359,5 @@ export function clearLogsFilter() {
  * Refresh the logs data
  */
 export function refreshLogsList() {
-    listLogs();
+    return listLogs();
 }

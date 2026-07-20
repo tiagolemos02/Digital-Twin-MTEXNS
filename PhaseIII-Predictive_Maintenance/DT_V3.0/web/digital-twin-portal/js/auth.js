@@ -35,7 +35,6 @@ import {
 import { setElementsEnabled, setTabAccessRules, switchTab } from './ui-helpers.js';
 import { apiFetch } from './api-client.js';
 import { listUsers } from './users.js';
-import { listLogs } from './orion-logs.js';
 import { refreshInventory } from './inventory.js';
 import { refreshRolesPermissionsData } from './roles-permissions.js';
 import { refreshHistoricalData } from './historical-data.js';
@@ -127,13 +126,6 @@ export async function applyAuthenticatedUI(email) {
     if (access.users) {
         listUsers();
     }
-    if (access.orion) {
-        try {
-            await listLogs();
-        } catch (err) {
-            console.error('Failed to load Orion logs:', err);
-        }
-    }
     if (access.inventory) {
         try {
             await refreshInventory();
@@ -155,7 +147,7 @@ export async function applyAuthenticatedUI(email) {
             console.error('Failed to load roles & permissions data:', err);
         }
     }
-    startDeviceActivityMonitor();
+    startDeviceActivityMonitor({ pollImmediately: false });
     switchTab(initialTab);
 }
 

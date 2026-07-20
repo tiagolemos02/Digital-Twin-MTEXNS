@@ -6,7 +6,7 @@ import {
   resolveConnectivity
 } from './connectivity-status.js';
 
-export const ACTIVITY_POLL_INTERVAL_MS = 30 * 1000;
+export const ACTIVITY_POLL_INTERVAL_MS = 4 * 1000;
 export const MONITOR_FAILURE_LIMIT = 3;
 export const OFFLINE_THRESHOLD_MS = CONNECTIVITY_OFFLINE_AFTER_MS;
 
@@ -16,8 +16,17 @@ let consecutiveFailures = 0;
 let lastMonitorError = '';
 let pollTimer = null;
 let pollInFlight = false;
+let pollPromise = null;
 let pollAbortController = null;
 let visibilityHandler = null;
+let telemetryMode = false;
+let activePollIncludesTelemetry = false;
+let queuedFullTelemetryPoll = false;
+let latestFullSnapshot = {
+  entities: [],
+  fetchedAt: 0,
+  rttMs: null
+};
 
 function rawValue(value) {
   if (value && typeof value === 'object' && Object.prototype.hasOwnProperty.call(value, 'value')) {
@@ -144,16 +153,27 @@ export function analyzeDevice(device = {}, { now = Date.now(), factoryTimeZone =
   };
 }
 
-function notifyActivityUpdated(now = Date.now()) {
+function notifyActivityUpdated(now = Date.now(), detail = {}) {
   if (typeof window === 'undefined') return;
   window.dispatchEvent(new CustomEvent('device-activity-updated', {
-    detail: { timestamp: now, monitor: getDeviceActivityMonitorState() }
+    detail: {
+      timestamp: now,
+      monitor: getDeviceActivityMonitorState(),
+      fullTelemetry: false,
+      ...detail
+    }
   }));
 }
 
 export function updateActivityFromDevices(
   devices = [],
-  { now = Date.now(), factoryTimeZone = FACTORY_TIME_ZONE, replace = true } = {}
+  {
+    now = Date.now(),
+    factoryTimeZone = FACTORY_TIME_ZONE,
+    replace = true,
+    notify = true,
+    notification = {}
+  } = {}
 ) {
   const byEntity = new Map();
   if (replace) activityStore.clear();
@@ -169,7 +189,7 @@ export function updateActivityFromDevices(
   lastFetchMs = now;
   consecutiveFailures = 0;
   lastMonitorError = '';
-  notifyActivityUpdated(now);
+  if (notify) notifyActivityUpdated(now, notification);
   return byEntity;
 }
 
@@ -202,6 +222,14 @@ export function getLastActivityFetchTime() {
   return lastFetchMs;
 }
 
+export function getLatestDeviceEntitySnapshot() {
+  return {
+    entities: latestFullSnapshot.entities.slice(),
+    fetchedAt: latestFullSnapshot.fetchedAt,
+    rttMs: latestFullSnapshot.rttMs
+  };
+}
+
 export function getDeviceActivityMonitorState() {
   return {
     available: consecutiveFailures < MONITOR_FAILURE_LIMIT,
@@ -224,46 +252,113 @@ export function clearDeviceActivity() {
   lastFetchMs = 0;
   consecutiveFailures = 0;
   lastMonitorError = '';
+  latestFullSnapshot = { entities: [], fetchedAt: 0, rttMs: null };
   notifyActivityUpdated();
+}
+
+export function buildDeviceActivityQuery({
+  entityType = ENTITY_TYPE,
+  includeTelemetry = false
+} = {}) {
+  const query = new URLSearchParams({ type: entityType });
+  if (includeTelemetry) {
+    query.set('options', 'keyValues');
+  } else {
+    query.set('attrs', 'iamalive,machine_status,TimeInstant');
+  }
+  return `/v2/entities?${query}`;
 }
 
 export async function refreshDeviceActivity({
   entityType = ENTITY_TYPE,
   now = Date.now(),
+  includeTelemetry = telemetryMode,
   signal
 } = {}) {
   if (!sessionToken) {
     clearDeviceActivity();
     return new Map();
   }
-  const query = new URLSearchParams({
-    type: entityType,
-    attrs: 'iamalive,machine_status,TimeInstant'
-  });
-  const response = await apiFetch(`/v2/entities?${query}`, { signal });
+  const startedAt = globalThis.performance?.now?.() ?? Date.now();
+  const response = await apiFetch(buildDeviceActivityQuery({ entityType, includeTelemetry }), { signal });
   if (!response.ok) throw new Error(`Failed to refresh device activity (HTTP ${response.status})`);
   const devices = await response.json();
-  return updateActivityFromDevices(Array.isArray(devices) ? devices : [], { now });
+  const normalizedDevices = Array.isArray(devices) ? devices : [];
+  const rttMs = Math.round((globalThis.performance?.now?.() ?? Date.now()) - startedAt);
+  if (includeTelemetry) {
+    latestFullSnapshot = {
+      entities: normalizedDevices,
+      fetchedAt: now,
+      rttMs
+    };
+  }
+  return updateActivityFromDevices(normalizedDevices, {
+    now,
+    notify: true,
+    notification: {
+      fullTelemetry: includeTelemetry,
+      entityCount: normalizedDevices.length,
+      rttMs
+    }
+  });
 }
 
 export async function pollDeviceActivity(options = {}) {
-  if (pollInFlight || !sessionToken) return null;
-  pollInFlight = true;
-  pollAbortController = typeof AbortController === 'function' ? new AbortController() : null;
-  try {
-    return await refreshDeviceActivity({ ...options, signal: pollAbortController?.signal });
-  } catch (error) {
-    if (error?.name !== 'AbortError') recordDeviceActivityFailure(error);
-    return null;
-  } finally {
-    pollInFlight = false;
-    pollAbortController = null;
+  const includeTelemetry = options.includeTelemetry ?? telemetryMode;
+  if (!sessionToken) return null;
+  if (pollInFlight) {
+    if (includeTelemetry && !activePollIncludesTelemetry) {
+      queuedFullTelemetryPoll = true;
+    }
+    return pollPromise;
   }
+  pollInFlight = true;
+  activePollIncludesTelemetry = includeTelemetry;
+  const controller = typeof AbortController === 'function' ? new AbortController() : null;
+  pollAbortController = controller;
+  const currentPoll = (async () => {
+    try {
+      return await refreshDeviceActivity({
+        ...options,
+        includeTelemetry,
+        signal: controller?.signal
+      });
+    } catch (error) {
+      if (error?.name !== 'AbortError') recordDeviceActivityFailure(error);
+      return null;
+    } finally {
+      if (pollPromise !== currentPoll) return;
+      const shouldRunFullTelemetryPoll = queuedFullTelemetryPoll;
+      queuedFullTelemetryPoll = false;
+      pollInFlight = false;
+      pollPromise = null;
+      pollAbortController = null;
+      activePollIncludesTelemetry = false;
+      if (shouldRunFullTelemetryPoll && telemetryMode && sessionToken) {
+        void pollDeviceActivity({ includeTelemetry: true });
+      }
+    }
+  })();
+  pollPromise = currentPoll;
+  return pollPromise;
 }
 
-export function startDeviceActivityMonitor({ intervalMs = ACTIVITY_POLL_INTERVAL_MS } = {}) {
+export function setDeviceActivityTelemetryMode(includeTelemetry, { refresh = true } = {}) {
+  telemetryMode = Boolean(includeTelemetry);
+  if (!refresh) return Promise.resolve(null);
+  return requestDeviceActivityRefresh({ includeTelemetry: telemetryMode });
+}
+
+export function requestDeviceActivityRefresh({ includeTelemetry = telemetryMode } = {}) {
+  return pollDeviceActivity({ includeTelemetry });
+}
+
+export function startDeviceActivityMonitor({
+  intervalMs = ACTIVITY_POLL_INTERVAL_MS,
+  pollImmediately = true
+} = {}) {
   stopDeviceActivityMonitor({ clear: false });
-  void pollDeviceActivity();
+  if (pollImmediately) void pollDeviceActivity();
   pollTimer = setInterval(() => {
     if (typeof document !== 'undefined' && document.hidden) return;
     void pollDeviceActivity();
@@ -282,9 +377,15 @@ export function stopDeviceActivityMonitor({ clear = true } = {}) {
   pollAbortController?.abort();
   pollAbortController = null;
   pollInFlight = false;
+  pollPromise = null;
+  activePollIncludesTelemetry = false;
+  queuedFullTelemetryPoll = false;
   if (visibilityHandler && typeof document !== 'undefined') {
     document.removeEventListener('visibilitychange', visibilityHandler);
   }
   visibilityHandler = null;
-  if (clear) clearDeviceActivity();
+  if (clear) {
+    telemetryMode = false;
+    clearDeviceActivity();
+  }
 }
