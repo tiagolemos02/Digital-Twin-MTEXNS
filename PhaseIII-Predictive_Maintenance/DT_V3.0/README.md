@@ -1,6 +1,10 @@
-# Phase III - Predictive Maintenance v0.7.3
+# Phase III - Predictive Maintenance v0.8
 
 **This phase starts the predictive maintenance roadmap by adding the historical telemetry foundation required for later machine learning and tightening the secured operator portal around that foundation.**
+
+Version `0.8` improves at-a-glance machine-state recognition on the 3D Digital Twin map. Connectivity is now shown by a colored dot on every Asset ID plate, while the ground ring exclusively represents the machine's last operational state with connectivity-aware attenuation.
+
+Version `0.8` does not change the shared four-second activity monitor, connectivity thresholds, operational-state mappings, machine registration, MQTT or IoT Agent behavior, personal layout persistence, FIWARE security, or predictive-maintenance calculations.
 
 Version `0.7.3` fixes live machine-state synchronization across Current State, Machines In Use, and the 3D Digital Twin. All three views now use one shared activity source, refresh every four seconds, and preserve their current filters, selection, camera, hover, and layout state while data changes.
 
@@ -30,11 +34,40 @@ The existing Phase II security model remains the baseline: browser traffic goes 
 
 **Phase**: `Phase III - Predictive Maintenance`
 
-**Version**: `0.7.3`
+**Version**: `0.8`
 
 **Author**: Tiago Lemos
 
 **Licence**: MIT
+
+---
+
+## Scope of v0.8
+
+### Implemented
+
+- Always-visible nine-pixel connectivity dot before the Asset ID on each black machine plate, using the existing Online, Stale, Offline, and Unknown colors
+- Operational-state ground ring separated from connectivity and colored from the canonical mappings in `machine-status.js`
+- Connectivity-aware ring attenuation: `0.92` Online, `0.68` Stale, `0.38` Offline, and `0.52` Unknown or monitoring unavailable
+- Ring updates applied on the existing shared four-second machine snapshot without creating another request, subscription, or timer
+- Emergency (`1`) and Critical error (`14`) pulse limited to Online machines, with pulse disabled when reduced motion is requested
+- Expanded hover details with independent **Connectivity** and **Operational** or **Last operational** lines, including connectivity age and the operational code
+- Solid-dot and outlined-ring symbols in hover details so status remains understandable without relying on color alone
+- Compact map legend, closed by default, explaining the dot and ring channels plus all four connectivity colors
+- Accessible legend interaction through a standard info button, tooltip, `aria-expanded`, visible keyboard focus, outside click, and `Escape`
+- Legend hidden during loading, error, and empty-map states and closed automatically when leaving the 3D Digital Twin
+- Pure visual-state resolver and unit coverage for channel separation, attenuation, critical pulse eligibility, reduced motion, unavailable monitoring, and unknown operational codes
+
+### Not Changed
+
+- Shared four-second activity polling, Orion query modes, failure handling, or tab-visibility recovery
+- Connectivity thresholds or operational-state code and color definitions
+- Current State, Machines In Use, or selected-machine inspector content and behavior
+- Asset ID values, machine identity colors, GLB model, factory environment, camera, selection, or layout editing
+- MQTT topics and payloads, simulator, custom IoT Agent, Orion, QuantumLeap, CrateDB, BFF, OAuth Authorization Code, Keyrock, PEP Proxy, or AuthzForce behavior
+- Predictive-maintenance forecasts, ML training, anomaly detection, or remaining useful life calculation
+
+This release makes connectivity and operational state independently readable directly on the factory map, avoiding the previous ambiguity in which the ground ring was overwritten with the connectivity color.
 
 ---
 
@@ -1385,9 +1418,11 @@ The UI shows the registered friendly attribute name, but queries the stored obje
 
 | File | Purpose |
 |------|---------|
-| `web/digital-twin-portal/index.html` | Adds Historical Data and multi-machine 3D Digital Twin workspaces; adds Access profile visibility, the MTEX NS sidebar shell, workflow-grouped navigation, guided machine registration stepper, IoT/NGSI payload preview, and role color picker UI |
-| `web/digital-twin-portal/js/digital-twin.js` | Coordinates personal layout loading, inventory updates, selection, edit/save/cancel state, and the machine inspector |
-| `web/digital-twin-portal/js/digital-twin-scene.js` | Renders the Three.js factory grid, static machine instances, status rings, labels, camera controls, dragging, and rotation |
+| `web/digital-twin-portal/index.html` | Adds Historical Data and multi-machine 3D Digital Twin workspaces; adds Access profile visibility, the MTEX NS sidebar shell, workflow-grouped navigation, guided machine registration stepper, IoT/NGSI payload preview, role color picker UI, and the accessible 3D map legend |
+| `web/digital-twin-portal/js/digital-twin.js` | Coordinates personal layout loading, inventory updates, selection, edit/save/cancel state, machine inspector, and map-legend lifecycle |
+| `web/digital-twin-portal/js/digital-twin-scene.js` | Renders the Three.js factory grid, static machine instances, operational rings, connectivity markers, hover details, camera controls, dragging, and rotation |
+| `web/digital-twin-portal/js/digital-twin-visual-state.js` | Resolves separate connectivity and operational map channels, ring attenuation, hover copy, and critical pulse eligibility |
+| `web/digital-twin-portal/js/digital-twin-visual-state.test.js` | Covers visual-channel separation, attenuation, critical pulses, reduced motion, monitoring availability, and unknown operational states |
 | `web/digital-twin-portal/js/digital-twin-layout.js` | Implements deterministic placement, collision checks, layout reconciliation, movement, rotation, and bounds calculations |
 | `web/digital-twin-portal/js/digital-twin-layout.test.js` | Covers placement, reconciliation, collisions, rotation, bounds, and label fallback behavior |
 | `web/digital-twin-portal/js/historical-data.js` | Implements historical query, chart, table, auto-refresh, and MTEX NS chart accent styling |
@@ -1405,7 +1440,7 @@ The UI shows the registered friendly attribute name, but queries the stored obje
 | `web/digital-twin-portal/js/users.js` | Uses recovery-oriented Keyrock user-management messages |
 | `web/digital-twin-portal/js/roles-permissions.js` | Uses recovery-oriented Keyrock role/permission-management messages and manages role color metadata, color validation, palette selection, custom hex preview, and colored assignment badges |
 | `web/digital-twin-portal/js/machine-status.js` | Defines machine status code mappings, RGB colors, dropdown options, parsing, and shared badge rendering |
-| `web/digital-twin-portal/css/styles.css` | Adds MTEX NS color/typography tokens, responsive 3D workspace styling, sidebar layout, role color picker styling, flatter operational panels, denser tables, and reduced-motion behavior |
+| `web/digital-twin-portal/css/styles.css` | Adds MTEX NS color/typography tokens, responsive 3D workspace and map-status styling, sidebar layout, role color picker styling, flatter operational panels, denser tables, and reduced-motion behavior |
 | `web/digital-twin-portal/css/custom.css` | Replaces decorative gradient mode toggles with quieter segmented-control styling |
 
 ---

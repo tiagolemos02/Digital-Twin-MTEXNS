@@ -1221,6 +1221,41 @@
                   <button id="twinRetry" type="button" class="twin-secondary-button">Try again</button>
                 </div>
 
+                <div id="twinMapLegend" class="twin-map-legend" hidden>
+                  <button
+                    id="twinLegendToggle"
+                    type="button"
+                    class="twin-map-legend-toggle"
+                    aria-label="Show map status legend"
+                    aria-controls="twinLegendPanel"
+                    aria-expanded="false"
+                    title="Map status legend"
+                  >
+                    <i class="fas fa-circle-info" aria-hidden="true"></i>
+                  </button>
+                  <div id="twinLegendPanel" class="twin-map-legend-panel" hidden>
+                    <div class="twin-map-legend-heading">
+                      <strong>Map status</strong>
+                      <span>Visual key</span>
+                    </div>
+                    <div class="twin-map-legend-channel">
+                      <span class="twin-legend-symbol is-connectivity" aria-hidden="true"></span>
+                      <span><strong>Dot</strong> Connectivity</span>
+                    </div>
+                    <ul class="twin-map-legend-list" aria-label="Connectivity states">
+                      <li><span class="twin-legend-dot is-online" aria-hidden="true"></span>Online</li>
+                      <li><span class="twin-legend-dot is-stale" aria-hidden="true"></span>Stale / Communication delayed</li>
+                      <li><span class="twin-legend-dot is-offline" aria-hidden="true"></span>Offline</li>
+                      <li><span class="twin-legend-dot is-unknown" aria-hidden="true"></span>Unknown</li>
+                    </ul>
+                    <div class="twin-map-legend-channel">
+                      <span class="twin-legend-symbol is-operational" aria-hidden="true"></span>
+                      <span><strong>Ring</strong> Operational state</span>
+                    </div>
+                    <p>Hover over a machine to see its exact operational state.</p>
+                  </div>
+                </div>
+
                 <div id="twinLiveRegion" class="sr-only" aria-live="polite"></div>
               </div>
             </div>

@@ -10,6 +10,7 @@ import {
   getMachineIdentityPaletteEntry,
   getMachineLabelDetails
 } from './machine-identity.js';
+import { resolveDigitalTwinVisualState } from './digital-twin-visual-state.js';
 
 const CELL_SIZE = 4.8;
 const MODEL_FOOTPRINT = 2.75;
@@ -18,13 +19,7 @@ const FLOOR_MINIMUM_RADIUS = 3;
 const POINTER_THRESHOLD = 7;
 const TOUCH_POINTER_THRESHOLD = 13;
 const TOUCH_DRAG_DELAY_MS = 120;
-const CRITICAL_STATUS_CODES = new Set([1, 14]);
 const OFFLINE_PEDESTAL_COLOR = 0x66686d;
-
-function connectivityColor(connectivity = {}) {
-  const rgb = Array.isArray(connectivity.rgb) ? connectivity.rgb : [156, 163, 175];
-  return new THREE.Color(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255);
-}
 
 function statusColor(status = {}) {
   const rgb = Array.isArray(status.rgb) ? status.rgb : [158, 158, 158];
@@ -295,13 +290,13 @@ export function createDigitalTwinScene({
 
   function updateCriticalRings(timestamp) {
     machineViews.forEach((view) => {
-      if (!view.critical || reducedMotion.matches) {
-        view.statusRing.material.opacity = view.connectivityState === 'unknown' ? 0.68 : 0.92;
+      if (!view.shouldPulse || reducedMotion.matches) {
+        view.statusRing.material.opacity = view.ringBaseOpacity;
         view.statusRing.scale.setScalar(1);
         return;
       }
       const pulse = (Math.sin(timestamp / 420) + 1) / 2;
-      view.statusRing.material.opacity = 0.68 + pulse * 0.27;
+      view.statusRing.material.opacity = view.ringBaseOpacity * (0.75 + pulse * 0.25);
       view.statusRing.scale.setScalar(1 + pulse * 0.055);
     });
   }
@@ -338,7 +333,13 @@ export function createDigitalTwinScene({
   function createLabel(machine) {
     const plateElement = document.createElement('div');
     plateElement.className = 'twin-machine-plate';
-    plateElement.textContent = getAssetPlateLabel(machine);
+    const plateConnectivity = document.createElement('span');
+    plateConnectivity.className = 'twin-machine-plate-connectivity';
+    plateConnectivity.setAttribute('aria-hidden', 'true');
+    const plateText = document.createElement('span');
+    plateText.className = 'twin-machine-plate-text';
+    plateText.textContent = getAssetPlateLabel(machine);
+    plateElement.append(plateConnectivity, plateText);
     const plateLabel = new CSS2DObject(plateElement);
     plateLabel.position.set(0, 0.46, 1.58);
 
@@ -348,13 +349,44 @@ export function createDigitalTwinScene({
     const asset = document.createElement('span');
     asset.className = 'twin-machine-label-asset';
     const device = document.createElement('span');
-    const status = document.createElement('span');
-    status.className = 'twin-machine-label-status';
-    element.append(title, asset, device, status);
+    const stateList = document.createElement('div');
+    stateList.className = 'twin-machine-label-states';
+    const connectivityStatus = document.createElement('div');
+    connectivityStatus.className = 'twin-machine-label-state is-connectivity';
+    const connectivitySymbol = document.createElement('span');
+    connectivitySymbol.className = 'twin-machine-state-symbol';
+    connectivitySymbol.setAttribute('aria-hidden', 'true');
+    const connectivityText = document.createElement('span');
+    connectivityText.className = 'twin-machine-state-copy';
+    connectivityStatus.append(connectivitySymbol, connectivityText);
+    const operationalStatus = document.createElement('div');
+    operationalStatus.className = 'twin-machine-label-state is-operational';
+    const operationalSymbol = document.createElement('span');
+    operationalSymbol.className = 'twin-machine-state-symbol';
+    operationalSymbol.setAttribute('aria-hidden', 'true');
+    const operationalText = document.createElement('span');
+    operationalText.className = 'twin-machine-state-copy';
+    operationalStatus.append(operationalSymbol, operationalText);
+    stateList.append(connectivityStatus, operationalStatus);
+    element.append(title, asset, device, stateList);
     const detailLabel = new CSS2DObject(element);
     detailLabel.position.set(0, MODEL_HEIGHT + 2.8, 0);
     detailLabel.visible = false;
-    return { plateLabel, plateElement, detailLabel, element, title, asset, device, status };
+    return {
+      plateLabel,
+      plateElement,
+      plateConnectivity,
+      plateText,
+      detailLabel,
+      element,
+      title,
+      asset,
+      device,
+      connectivityStatus,
+      connectivityText,
+      operationalStatus,
+      operationalText
+    };
   }
 
   function pedestalMaterial(machine) {
@@ -370,6 +402,7 @@ export function createDigitalTwinScene({
   }
 
   function createMachineView(machine) {
+    const visual = resolveDigitalTwinVisualState(machine, { reducedMotion: reducedMotion.matches });
     const root = new THREE.Group();
     root.userData.deviceId = machine.deviceId;
 
@@ -386,7 +419,7 @@ export function createDigitalTwinScene({
         color: statusColor(machine.machineStatus),
         side: THREE.DoubleSide,
         transparent: true,
-        opacity: 0.92,
+        opacity: visual.ringOpacity,
         depthWrite: false
       })
     );
@@ -425,8 +458,8 @@ export function createDigitalTwinScene({
       ringOutline,
       ...labelParts,
       machine,
-      critical: false,
-      connectivityState: 'unknown'
+      shouldPulse: false,
+      ringBaseOpacity: visual.ringOpacity
     };
   }
 
@@ -446,23 +479,28 @@ export function createDigitalTwinScene({
 
   function updateMachineView(view, machine, placement) {
     view.machine = machine;
-    const connectivity = machine.connectivity || { state: 'unknown', label: 'Unknown' };
-    const offline = connectivity.state === 'offline';
-    view.connectivityState = connectivity.state || 'unknown';
+    const visual = resolveDigitalTwinVisualState(machine, { reducedMotion: reducedMotion.matches });
+    const offline = visual.connectivity.state === 'offline';
     view.pedestal.material = offline ? offlinePedestalMaterial : pedestalMaterial(machine);
     const details = getMachineLabelDetails(machine);
-    view.plateElement.textContent = getAssetPlateLabel(machine);
+    view.plateText.textContent = getAssetPlateLabel(machine);
     view.title.textContent = details.title;
     view.asset.textContent = details.assetId;
     view.asset.classList.toggle('is-missing', details.missing);
     view.device.textContent = details.deviceId;
-    view.status.textContent = `${connectivity.label || 'Unknown'} · ${details.status}`;
-    const connectivityRgb = Array.isArray(connectivity.rgb) ? connectivity.rgb : [156, 163, 175];
-    view.status.style.setProperty('--machine-status-color', `rgb(${connectivityRgb.join(', ')})`);
-    view.statusRing.material.color.copy(connectivityColor(connectivity));
-    view.critical = connectivity.state === 'online' && CRITICAL_STATUS_CODES.has(Number(machine.machineStatus?.code));
-    view.element.dataset.connectivity = view.connectivityState;
-    view.plateElement.dataset.connectivity = view.connectivityState;
+    view.connectivityText.textContent = `Connectivity: ${visual.connectivity.text}`;
+    view.operationalText.textContent = `${visual.operational.prefix}: ${visual.operational.label}`;
+    const connectivityColorValue = `rgb(${visual.connectivity.rgb.join(', ')})`;
+    const operationalColorValue = `rgb(${visual.operational.rgb.join(', ')})`;
+    view.plateElement.style.setProperty('--machine-connectivity-color', connectivityColorValue);
+    view.connectivityStatus.style.setProperty('--machine-connectivity-color', connectivityColorValue);
+    view.operationalStatus.style.setProperty('--machine-operational-color', operationalColorValue);
+    view.statusRing.material.color.copy(statusColor(visual.operational));
+    view.ringBaseOpacity = visual.ringOpacity;
+    view.statusRing.material.opacity = visual.ringOpacity;
+    view.shouldPulse = visual.shouldPulse;
+    view.element.dataset.connectivity = visual.connectivity.state;
+    view.plateElement.dataset.connectivity = visual.connectivity.state;
     setModelOffline(view.modelMaterials, offline);
     setPlacement(view, placement);
   }

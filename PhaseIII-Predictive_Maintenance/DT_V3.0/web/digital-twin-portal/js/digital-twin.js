@@ -40,6 +40,9 @@ function queryElements() {
     retry: byId('twinRetry'),
     provision: byId('twinProvisionMachine'),
     live: byId('twinLiveRegion'),
+    legend: byId('twinMapLegend'),
+    legendToggle: byId('twinLegendToggle'),
+    legendPanel: byId('twinLegendPanel'),
     inspector: byId('twinInspector'),
     inspectorTitle: byId('twinInspectorTitle'),
     inspectorAssetId: byId('twinInspectorAssetId'),
@@ -146,10 +149,32 @@ export function initTwinViewer({ onProvisionMachine } = {}) {
     if (elements.progress) elements.progress.style.transform = `scaleX(${percentage / 100})`;
   }
 
+  function isLegendOpen() {
+    return Boolean(elements.legendPanel && !elements.legendPanel.hidden);
+  }
+
+  function setLegendOpen(open, { returnFocus = false } = {}) {
+    const shouldOpen = Boolean(open && elements.legend && !elements.legend.hidden);
+    if (elements.legendPanel) elements.legendPanel.hidden = !shouldOpen;
+    if (elements.legendToggle) {
+      elements.legendToggle.setAttribute('aria-expanded', String(shouldOpen));
+      elements.legendToggle.setAttribute(
+        'aria-label',
+        shouldOpen ? 'Hide map status legend' : 'Show map status legend'
+      );
+      elements.legendToggle.title = shouldOpen ? 'Hide map status legend' : 'Map status legend';
+      if (returnFocus) elements.legendToggle.focus();
+    }
+  }
+
   function updateStateLayers() {
     const hasMachines = machines.length > 0;
     elements.loading?.classList.toggle('hidden', sceneReady);
     elements.empty?.classList.toggle('hidden', !sceneReady || hasMachines);
+    if (elements.legend) {
+      elements.legend.hidden = !sceneReady || !hasMachines;
+      if (elements.legend.hidden) setLegendOpen(false);
+    }
     if (elements.edit) {
       elements.edit.disabled = !sceneReady || !hasMachines || !layoutAvailable || saveInFlight;
     }
@@ -418,6 +443,7 @@ export function initTwinViewer({ onProvisionMachine } = {}) {
 
   function deactivate() {
     active = false;
+    setLegendOpen(false);
     sceneController?.setActive(false);
   }
 
@@ -469,6 +495,7 @@ export function initTwinViewer({ onProvisionMachine } = {}) {
   elements.reset?.addEventListener('click', () => sceneController?.resetView());
   elements.closeInspector?.addEventListener('click', closeInspector);
   elements.provision?.addEventListener('click', () => onProvisionMachine?.());
+  elements.legendToggle?.addEventListener('click', () => setLegendOpen(!isLegendOpen()));
   elements.retry?.addEventListener('click', () => {
     sceneController?.destroy();
     sceneController = null;
@@ -482,6 +509,11 @@ export function initTwinViewer({ onProvisionMachine } = {}) {
     sceneController?.updatePlacement(selectedDeviceId, draftLayout.machines[selectedDeviceId]);
   });
   elements.host?.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && isLegendOpen()) {
+      event.preventDefault();
+      setLegendOpen(false, { returnFocus: true });
+      return;
+    }
     if (event.key === 'Escape' && editing) {
       event.preventDefault();
       cancelEditMode();
@@ -498,6 +530,20 @@ export function initTwinViewer({ onProvisionMachine } = {}) {
     event.preventDefault();
     moveSelectedByKeyboard(move[0], move[1]);
   });
+
+  function handleDocumentPointerDown(event) {
+    if (!isLegendOpen() || elements.legend?.contains(event.target)) return;
+    setLegendOpen(false);
+  }
+
+  function handleDocumentKeydown(event) {
+    if (event.key !== 'Escape' || !isLegendOpen()) return;
+    event.preventDefault();
+    setLegendOpen(false, { returnFocus: true });
+  }
+
+  document.addEventListener('pointerdown', handleDocumentPointerDown);
+  document.addEventListener('keydown', handleDocumentKeydown);
 
   const unsubscribe = subscribeRegisteredMachines((snapshot) => {
     machines = snapshot;
@@ -532,6 +578,8 @@ export function initTwinViewer({ onProvisionMachine } = {}) {
     destroy() {
       unsubscribe();
       sectionObserver.disconnect();
+      document.removeEventListener('pointerdown', handleDocumentPointerDown);
+      document.removeEventListener('keydown', handleDocumentKeydown);
       sceneController?.destroy();
     }
   };
