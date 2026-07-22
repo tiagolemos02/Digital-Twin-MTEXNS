@@ -23,7 +23,8 @@ test('discovers only generated limits that exist in the Orion entity', () => {
     attributes: [
       { object_id: 'service_time', name: 'service_time', type: 'StructuredValue' },
       { object_id: 'diagnostics', name: 'diagnostics', type: 'StructuredValue' },
-      { object_id: 'temperature', name: 'temperature', type: 'Number' }
+      { object_id: 'temperature', name: 'temperature', type: 'Number' },
+      { object_id: 'temperature_maximum', name: 'temperature_maximum', type: 'Number' }
     ],
     raw: {
       service_time: { type: 'Number', value: 42 },
@@ -51,6 +52,20 @@ test('discovers only generated limits that exist in the Orion entity', () => {
       readOnly: true
     }
   ]);
+});
+
+test('discovers generated limits for a base counter registered as Number', () => {
+  const generated = getGeneratedTelemetryAttributes({
+    attributes: [{ object_id: 'service_time', name: 'service_time', type: 'Number' }],
+    raw: {
+      service_time: { type: 'Number', value: 42 },
+      service_time_maximum: { type: 'Number', value: 90 }
+    }
+  });
+
+  assert.equal(generated.length, 1);
+  assert.equal(generated[0].name, 'service_time_maximum');
+  assert.equal(generated[0].sourceAttribute, 'service_time');
 });
 
 test('does not invent generated limits before Orion exposes them', () => {

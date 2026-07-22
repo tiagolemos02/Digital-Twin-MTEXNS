@@ -41,14 +41,19 @@ export function getGeneratedTelemetryAttributes(machine = {}) {
 
   const generated = [];
   const seen = new Set();
+  const registeredNames = new Set(
+    (machine?.attributes || []).flatMap((attribute) => telemetryAttributeNames(attribute))
+  );
 
   for (const attribute of machine?.attributes || []) {
-    if (normalized(attribute?.type) !== 'structuredvalue') continue;
-
     for (const sourceAttribute of telemetryAttributeNames(attribute)) {
       for (const suffix of GENERATED_LIMIT_SUFFIXES) {
         const name = `${sourceAttribute}_${suffix}`;
-        if (seen.has(name) || !Object.prototype.hasOwnProperty.call(rawEntity, name)) continue;
+        if (
+          seen.has(name) ||
+          registeredNames.has(name) ||
+          !Object.prototype.hasOwnProperty.call(rawEntity, name)
+        ) continue;
 
         const rawAttribute = rawEntity[name];
         const rawType = rawAttribute && typeof rawAttribute === 'object'

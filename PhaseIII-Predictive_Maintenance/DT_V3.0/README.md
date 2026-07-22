@@ -1,6 +1,14 @@
-# Phase III - Predictive Maintenance v0.8
+# Phase III - Predictive Maintenance v0.8.1
 
 **This phase starts the predictive maintenance roadmap by adding the historical telemetry foundation required for later machine learning and tightening the secured operator portal around that foundation.**
+
+Version `0.8.1` fixes the bounded maintenance-counter contract from MQTT registration through Orion and QuantumLeap to
+CrateDB. The 75 canonical counters are now registered and stored as numeric values, existing incompatible schemas can
+be migrated without deleting their old columns, and future type mismatches stop the historical synchronizer instead of
+silently producing `NULL` values.
+
+Version `0.8.1` does not change the real-machine MQTT topics or payloads, generated minimum/maximum attribute names,
+connectivity or operational-state behavior, authentication and authorization, or predictive-maintenance calculations.
 
 Version `0.8` improves at-a-glance machine-state recognition on the 3D Digital Twin map. Connectivity is now shown by a colored dot on every Asset ID plate, while the ground ring exclusively represents the machine's last operational state with connectivity-aware attenuation.
 
@@ -34,11 +42,41 @@ The existing Phase II security model remains the baseline: browser traffic goes 
 
 **Phase**: `Phase III - Predictive Maintenance`
 
-**Version**: `0.8`
+**Version**: `0.8.1`
 
 **Author**: Tiago Lemos
 
 **Licence**: MIT
+
+---
+
+## Scope of v0.8.1
+
+### Implemented
+
+- Numeric NGSI contract for all 75 bounded maintenance counters in the canonical simulator/provisioning mapping
+- Normalized IoT Agent measure types allowed to override stale provisioned types without mutating the persisted device object
+- Generated `_minimum` and `_maximum` attributes discovered from Orion even when their base attribute is registered as `Number`
+- Contract regression test covering the complete set of 75 maintenance counters
+- One-shot, idempotent IoT Agent registry migration with an original-document MongoDB backup
+- One-shot, idempotent CrateDB migration from `OBJECT` to `REAL`, retaining each old column with the `__legacy_bounded_number_v1` suffix
+- Automatic capture and reconstruction of views that depend on migrated historical columns
+- Historical schema synchronization that validates existing column types and fails visibly on incompatible contracts
+- Node.js schema synchronization and migration tools with no package downloads during container startup
+- Optional localhost-only CrateDB diagnostics override through `docker-compose.diagnostics.yml`
+- Portal, IoT Agent, Compose, migration, live Orion, QuantumLeap, CrateDB, and idempotency validation
+
+### Not Changed
+
+- Real-machine MQTT topic format `<deviceId>/state/<attribute>` or bounded `{ value, minimum, maximum }` payloads
+- Generated limit names or their read-only behavior in the portal
+- Connectivity thresholds, operational-state mappings, 3D factory behavior, or personal layout persistence
+- OAuth Authorization Code flow, Keyrock, PEP Proxy, AuthzForce, or FIWARE tenant headers
+- ML training, anomaly detection, remaining useful life, forecasts, or prediction write-back
+
+This patch removes the schema mismatch that caused `print_bar_traveled_distance_since_last_pm` and the other bounded
+counter values to appear as `NULL` in CrateDB while preserving all pre-migration data for an explicit later retention
+decision.
 
 ---
 
@@ -1320,9 +1358,48 @@ The schema sync service:
 - reads current `Machine` attributes from Orion
 - checks the CrateDB table schema
 - adds missing columns internally
+- verifies that existing CrateDB types still match the Orion/NGSI contract
+- exits and restarts on a type mismatch by default instead of silently accepting an incompatible column
 - runs every `${HISTORICAL_SCHEMA_SYNC_INTERVAL_SECONDS}` seconds
 
-This keeps the table compatible with newly registered machine telemetry attributes without exposing CrateDB.
+The service runs with Node.js from the existing IoT Agent image and does not download tools during container startup.
+This keeps the table compatible with newly registered machine telemetry attributes without exposing CrateDB. Set
+`HISTORICAL_SCHEMA_TYPE_MISMATCH_POLICY=warn` only for a temporary investigation; production should keep the default
+`fail` policy.
+
+### Bounded maintenance counter migration
+
+Maintenance counters whose MQTT payload contains `{ value, minimum, maximum }` have a numeric NGSI contract:
+
+- the base attribute is `Number`
+- generated `_minimum` and `_maximum` attributes are `Number`
+- the corresponding CrateDB columns are `REAL`
+
+The `maintenance` Compose profile provides two idempotent one-shot migrations. Both run as dry-runs by default:
+
+```powershell
+cd DT_V3.0/docker_compose
+docker compose --profile maintenance run --rm --no-deps bounded-telemetry-registry-migration
+docker compose --profile maintenance run --rm --no-deps bounded-history-migration
+```
+
+For an existing stack, use a short write pause and apply them in this order:
+
+```powershell
+docker compose stop quantumleap historical-schema-sync
+docker compose --profile maintenance run --rm --no-deps -e MIGRATION_APPLY=true bounded-telemetry-registry-migration
+docker compose restart iot-agent
+
+# Wait for fresh telemetry. The next command refuses to run until Orion exposes Number.
+docker compose --profile maintenance run --rm --no-deps -e MIGRATION_APPLY=true bounded-history-migration
+
+docker compose -f docker-compose.yml -f docker-compose.diagnostics.yml up -d --no-deps quantumleap historical-schema-sync
+```
+
+The registry migration copies each original device document once to
+`devices_backup_bounded_number_v1`. The historical migration does not drop the old data: each incompatible column is
+renamed with `__legacy_bounded_number_v1`, a new `REAL` column receives the original name, and dependent views are
+rebuilt. `MIGRATION_ID` and the backup collection can be changed through the variables documented in `.env.example`.
 
 ---
 
@@ -1410,7 +1487,7 @@ The UI shows the registered friendly attribute name, but queries the stored obje
 | `docker_compose/bff/layout-store.test.js` | Covers layout normalization, user isolation, conflicts, and deprovision cleanup |
 | `docker_compose/.env.example` | Adds image/config variables for CrateDB, QuantumLeap, and schema sync |
 | `docker_compose/bootstrap/historical-subscription.sh` | Creates/updates the Orion subscription for QuantumLeap |
-| `docker_compose/bootstrap/historical-schema-sync.sh` | Adds missing CrateDB columns for new Machine attributes |
+| `docker_compose/bootstrap/historical-schema-sync.js` | Adds missing CrateDB columns and rejects incompatible existing column types without runtime package downloads |
 | `docker_compose/gateway/default.conf` | Adds `/quantumleap/` internal proxy route |
 | `docker_compose/bootstrap/keyrock-bootstrap.sh` | Adds historical data permissions |
 
@@ -1761,7 +1838,12 @@ This is expected.
 
 ### CrateDB column types
 
-The current IoT Agent/Orion flow may store some numeric values as `Text` attributes. The portal converts numeric-looking values for charting. Later ML extraction should explicitly cast values in SQL when building training datasets.
+Bounded maintenance counters are normalized to NGSI `Number` and stored as CrateDB `REAL`. The mapping contract test
+prevents the 75 canonical counters from being registered as `StructuredValue` again. Their `_minimum` and `_maximum`
+limits remain separate numeric attributes.
+
+Other custom attributes may still be intentionally registered as `Text`. ML extraction should explicitly cast only
+those text attributes when building training datasets.
 
 Example:
 

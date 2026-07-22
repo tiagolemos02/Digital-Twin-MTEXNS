@@ -350,7 +350,7 @@ services:
       - ENTITY_TYPE=Machine
 
   historical-schema-sync:
-    image: alpine:3.20
+    image: ${IOT_AGENT_IMAGE}
     container_name: historical-schema-sync
     depends_on:
       - orion-v2
@@ -359,8 +359,8 @@ services:
       - fiware_net
     restart: unless-stopped
     volumes:
-      - ./bootstrap/historical-schema-sync.sh:/opt/historical-schema-sync.sh:ro
-    entrypoint: ["/bin/sh", "/opt/historical-schema-sync.sh"]
+      - ./bootstrap/historical-schema-sync.js:/opt/historical-schema-sync.js:ro
+    entrypoint: ["node", "/opt/historical-schema-sync.js"]
     environment:
       - ORION_URL=http://orion-v2:1026
       - CRATE_URL=http://crate-db:4200
@@ -368,6 +368,53 @@ services:
       - FIWARE_SERVICEPATH=/
       - ENTITY_TYPE=Machine
       - SYNC_INTERVAL_SECONDS=${HISTORICAL_SCHEMA_SYNC_INTERVAL_SECONDS}
+      - TYPE_MISMATCH_POLICY=${HISTORICAL_SCHEMA_TYPE_MISMATCH_POLICY:-fail}
+
+  bounded-telemetry-registry-migration:
+    profiles: ["maintenance"]
+    image: ${MONGO_IMAGE}
+    depends_on:
+      - mongo-db
+    networks:
+      - fiware_net
+    restart: "no"
+    volumes:
+      - ./bootstrap/migrate-bounded-iota-types.js:/opt/migrate-bounded-iota-types.js:ro
+    entrypoint: ["mongosh"]
+    command:
+      - "--quiet"
+      - "--host=mongo-db"
+      - "--port=27017"
+      - "--username=${MONGO_ROOT_USERNAME}"
+      - "--password=${MONGO_ROOT_PASSWORD}"
+      - "--authenticationDatabase=admin"
+      - "iotagentjson"
+      - "--file=/opt/migrate-bounded-iota-types.js"
+    environment:
+      - MIGRATION_APPLY=${BOUNDED_TELEMETRY_MIGRATION_APPLY:-false}
+      - IOTA_MONGO_DB=iotagentjson
+      - IOTA_BACKUP_COLLECTION=${BOUNDED_TELEMETRY_BACKUP_COLLECTION:-devices_backup_bounded_number_v1}
+
+  bounded-history-migration:
+    profiles: ["maintenance"]
+    image: ${IOT_AGENT_IMAGE}
+    depends_on:
+      - orion-v2
+      - crate-db
+    networks:
+      - fiware_net
+    restart: "no"
+    volumes:
+      - ./bootstrap/migrate-bounded-history.js:/opt/migrate-bounded-history.js:ro
+    entrypoint: ["node", "/opt/migrate-bounded-history.js"]
+    environment:
+      - ORION_URL=http://orion-v2:1026
+      - CRATE_URL=http://crate-db:4200
+      - FIWARE_SERVICE=openiot
+      - FIWARE_SERVICEPATH=/
+      - ENTITY_TYPE=Machine
+      - MIGRATION_APPLY=${BOUNDED_TELEMETRY_MIGRATION_APPLY:-false}
+      - MIGRATION_ID=${BOUNDED_TELEMETRY_MIGRATION_ID:-bounded_number_v1}
 
   iot-agent:
     image: ${IOT_AGENT_IMAGE}

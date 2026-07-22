@@ -1,0 +1,6 @@
+services:
+  crate-db:
+    # Diagnostic access to the CrateDB Admin UI and HTTP SQL API.
+    # Bind only to localhost because this deployment has no CrateDB authentication.
+    ports:
+      - "127.0.0.1:4200:4200"
