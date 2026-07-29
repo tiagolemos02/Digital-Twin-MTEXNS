@@ -1,12 +1,12 @@
-# Phase III - Predictive Maintenance v1.0.0
+# Phase III - Predictive Maintenance v1.0.1
 
-**Version 1.0.0 freezes the reproducible MVP contract for the first predictive-maintenance implementation while preserving the existing historical telemetry and secured portal foundation.**
+**Version 1.0.1 prepares and verifies the reproducible Python 3.12 and Docker environment for the predictive-maintenance MVP while preserving the frozen v1.0.0 contract and the existing historical telemetry and secured portal foundation.**
 
-Version `1.0.0` adds the versioned, checksum-protected configuration that defines the maintenance objective, four initial
-components, 24-hour and 7-day horizons, dataset separation, synthetic scenario boundaries, data-quality gates, model
-roles, decision states, device responsibilities, and explicit non-goals for the four-week MVP.
+Version `1.0.1` adds the installable ML diagnostics package, exact direct and transitive dependency locks with hashes,
+configuration integrity and semantic checks, Parquet and LightGBM smoke tests, strict quality tooling, a non-root
+multi-architecture training image, conservative domestic-device resource defaults, and dedicated ML documentation.
 
-Version `1.0.0` does not yet generate synthetic history, train or run models, write predictions to FIWARE, change the
+Version `1.0.1` does not yet generate synthetic history, train or run MVP models, write predictions to FIWARE, change the
 portal placeholder, export enterprise data, or alter MQTT, IoT Agent, Orion, QuantumLeap, CrateDB, BFF, authentication,
 authorization, connectivity, or machine-state behavior.
 
@@ -18,11 +18,74 @@ The existing Phase II security model remains the baseline: browser traffic goes 
 
 **Phase**: `Phase III - Predictive Maintenance`
 
-**Version**: `1.0.0`
+**Version**: `1.0.1`
 
 **Author**: Tiago Lemos
 
 **Licence**: MIT
+
+---
+
+## Scope of v1.0.1
+
+### Implemented
+
+- Installable Python package and `mtex-pdm` command-line interface for environment diagnostics
+- CPython contract frozen to `>=3.12,<3.13` across Windows, macOS ARM64, and Linux x86-64
+- Exact direct dependencies and fully resolved transitive lock with accepted distribution hashes
+- Deliberate NumPy `2.4.6` compatibility pin for the SHAP/Numba toolchain
+- Integrity and semantic validation of the four v1.0.0 frozen YAML configuration files
+- Detection of unversioned configuration edits through the existing SHA-256 manifest
+- Cross-file checks for the four canonical components, 24-hour and 7-day horizons, validation-only unset thresholds,
+  historical split, objective name, and leakage exclusions
+- Parquet/Zstandard write-and-read smoke test
+- Deterministic eight-row LightGBM fit and probability smoke test using one worker
+- pytest regression suite, Ruff lint/format configuration, and strict mypy configuration
+- Official Python `3.12.13-slim-bookworm` Docker base pinned by a multi-architecture manifest digest
+- Hash-verified package installation, build-time configuration validation, and tests in the Docker image
+- Non-root final container process and one-thread native-library defaults
+- Separate ARM64 and x86-64 build instructions and conservative device resource profiles
+- Git and Docker exclusions for environments, caches, generated datasets, model artifacts, and reports
+
+### New
+
+| File | Purpose |
+|------|---------|
+| `ml/README.md` | Documents setup, validation commands, architecture builds, device limits, outputs, and current scope |
+| `ml/pyproject.toml` | Defines the package, Python contract, direct dependency groups, CLI, and quality tools |
+| `ml/requirements.in` | Records the intentional direct dependency versions |
+| `ml/requirements.lock` | Freezes the complete transitive dependency graph with package hashes |
+| `ml/Dockerfile.training` | Builds and verifies the same non-root training environment on ARM64 and x86-64 |
+| `ml/.dockerignore` | Prevents local environments, caches, data, and artifacts from entering the build context |
+| `ml/src/mtex_pdm/__init__.py` | Exposes the module release version |
+| `ml/src/mtex_pdm/__main__.py` | Provides `config-check` and `environment-check` commands |
+| `ml/src/mtex_pdm/config_validation.py` | Validates checksums and critical frozen-contract invariants |
+| `ml/src/mtex_pdm/environment.py` | Checks Python, architecture, dependencies, Parquet, and LightGBM |
+| `ml/tests/test_environment.py` | Protects configuration integrity, package version, CLI, and native-stack smoke behavior |
+
+### Why
+
+- Detect Python, native-wheel, architecture, or dependency incompatibilities before dataset generation and training
+- Give the ARM64 MacBook and x86-64 home server equivalent environments without transferring incompatible images
+- Keep local Windows analysis aligned with the same dependency and configuration contract
+- Prevent unnoticed changes to targets, horizons, component definitions, data splits, or decision thresholds
+- Make thesis results reproducible from an exact dependency graph and frozen experimental configuration
+- Verify early that the selected stack can create portable Parquet data and execute the intended LightGBM library
+- Limit default CPU contention on domestic devices that continue running unrelated processes
+- Establish one documented module boundary for later generator, training, inference, export, and FIWARE work
+
+### Not Changed
+
+- No synthetic historical or MQTT telemetry generator
+- No data schemas, dataset manifests, labels, features, model training, calibration, SHAP reports, or inference jobs
+- No machine registration, enterprise CrateDB export, scheduled collection, SSH, or SFTP automation
+- No `MaintenancePrediction` entities, QuantumLeap subscription, CrateDB prediction table, or BFF endpoints
+- No predictive-maintenance portal panel, external notification, automatic work order, or machine control
+- No changes to the four frozen YAML files or their v1.0.0 checksums
+- No changes to MQTT topics, IoT Agent, Orion, QuantumLeap, CrateDB, security, connectivity, operational state, or 3D views
+- No claim of validated production predictive performance
+
+Full setup and operational instructions are in [`ml/README.md`](ml/README.md).
 
 ---
 

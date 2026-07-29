@@ -1,0 +1,67 @@
+[build-system]
+requires = ["setuptools==80.9.0", "wheel==0.45.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mtex-pdm"
+version = "1.0.1"
+description = "Reproducible environment and tooling for the MTEX predictive-maintenance MVP"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = "MIT"
+authors = [
+  { name = "Tiago Lemos" },
+]
+dependencies = [
+  "numpy==2.4.6",
+  "polars==1.43.0",
+  "pyarrow==25.0.0",
+  "pydantic==2.13.4",
+  "PyYAML==6.0.3",
+]
+
+[project.optional-dependencies]
+training = [
+  "lightgbm==4.7.0",
+  "matplotlib==3.11.1",
+  "scikit-learn==1.9.0",
+  "shap==0.52.0",
+]
+dev = [
+  "mypy==2.3.0",
+  "pytest==9.1.1",
+  "ruff==0.15.22",
+]
+
+[project.scripts]
+mtex-pdm = "mtex_pdm.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["B", "E", "F", "I", "RUF", "SIM", "UP"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src", "tests"]
+pretty = true
+show_error_codes = true
+
+[[tool.mypy.overrides]]
+module = [
+  "lightgbm",
+  "pyarrow",
+  "pyarrow.*",
+  "yaml",
+]
+ignore_missing_imports = true

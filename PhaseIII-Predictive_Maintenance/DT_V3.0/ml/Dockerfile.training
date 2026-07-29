@@ -1,0 +1,51 @@
+# syntax=docker/dockerfile:1
+
+# The digest identifies the multi-architecture manifest for the official
+# Python 3.12.13 slim Bookworm image, so ARM64 and x86-64 builds share one
+# reproducible base-image contract without transferring an image between them.
+ARG PYTHON_IMAGE=python:3.12.13-slim-bookworm@sha256:d50fb7611f86d04a3b0471b46d7557818d88983fc3136726336b2a4c657aa30b
+FROM ${PYTHON_IMAGE}
+
+LABEL org.opencontainers.image.title="MTEX predictive-maintenance training environment"
+LABEL org.opencontainers.image.version="1.0.1"
+LABEL org.opencontainers.image.description="Reproducible Python environment for the MTEX predictive-maintenance MVP"
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1 \
+    MTEX_PDM_CONFIG_DIR=/opt/mtex-pdm/config \
+    OMP_NUM_THREADS=1 \
+    OPENBLAS_NUM_THREADS=1 \
+    MKL_NUM_THREADS=1 \
+    NUMEXPR_NUM_THREADS=1 \
+    POLARS_MAX_THREADS=1
+
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /opt/mtex-pdm
+
+COPY requirements.lock pyproject.toml README.md ./
+RUN python -m pip install --require-hashes --requirement requirements.lock
+
+COPY src ./src
+RUN python -m pip install --no-deps --no-build-isolation .
+
+COPY config ./config
+COPY tests ./tests
+
+RUN mtex-pdm config-check --json \
+    && python -m pytest
+
+RUN groupadd --gid 10001 mtex \
+    && useradd --create-home --uid 10001 --gid 10001 mtex \
+    && mkdir --parents /workspace/data /workspace/artifacts \
+    && chown --recursive mtex:mtex /workspace
+
+USER mtex
+WORKDIR /workspace
+
+ENTRYPOINT ["mtex-pdm"]
+CMD ["environment-check"]

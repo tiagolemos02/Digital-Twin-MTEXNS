@@ -8,3 +8,20 @@ web/digital-twin-portal/js/runtime-config.js
 
 # Optional local overrides
 docker_compose/*.local
+
+# Predictive-maintenance Python environments and caches
+ml/.venv/
+ml/**/__pycache__/
+ml/**/*.py[cod]
+ml/*.egg-info/
+ml/.pytest_cache/
+ml/.mypy_cache/
+ml/.ruff_cache/
+ml/build/
+ml/dist/
+
+# Generated ML data, models, and reports
+ml/data/
+ml/artifacts/
+ml/models/
+ml/reports/

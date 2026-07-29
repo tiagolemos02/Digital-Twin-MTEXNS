@@ -1,0 +1,21 @@
+# Build tooling used by the container's no-build-isolation package install.
+setuptools==80.9.0
+wheel==0.45.1
+
+# Data contract, configuration, validation, and columnar storage.
+numpy==2.4.6
+polars==1.43.0
+pyarrow==25.0.0
+pydantic==2.13.4
+PyYAML==6.0.3
+
+# MVP training, baselines, evaluation, and offline explainability.
+lightgbm==4.7.0
+matplotlib==3.11.1
+scikit-learn==1.9.0
+shap==0.52.0
+
+# Verification tools included in the reproducible development image.
+mypy==2.3.0
+pytest==9.1.1
+ruff==0.15.22
