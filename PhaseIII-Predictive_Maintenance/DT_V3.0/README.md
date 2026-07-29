@@ -1,38 +1,14 @@
-# Phase III - Predictive Maintenance v0.8.1
+# Phase III - Predictive Maintenance v1.0.0
 
-**This phase starts the predictive maintenance roadmap by adding the historical telemetry foundation required for later machine learning and tightening the secured operator portal around that foundation.**
+**Version 1.0.0 freezes the reproducible MVP contract for the first predictive-maintenance implementation while preserving the existing historical telemetry and secured portal foundation.**
 
-Version `0.8.1` fixes the bounded maintenance-counter contract from MQTT registration through Orion and QuantumLeap to
-CrateDB. The 75 canonical counters are now registered and stored as numeric values, existing incompatible schemas can
-be migrated without deleting their old columns, and future type mismatches stop the historical synchronizer instead of
-silently producing `NULL` values.
+Version `1.0.0` adds the versioned, checksum-protected configuration that defines the maintenance objective, four initial
+components, 24-hour and 7-day horizons, dataset separation, synthetic scenario boundaries, data-quality gates, model
+roles, decision states, device responsibilities, and explicit non-goals for the four-week MVP.
 
-Version `0.8.1` does not change the real-machine MQTT topics or payloads, generated minimum/maximum attribute names,
-connectivity or operational-state behavior, authentication and authorization, or predictive-maintenance calculations.
-
-Version `0.8` improves at-a-glance machine-state recognition on the 3D Digital Twin map. Connectivity is now shown by a colored dot on every Asset ID plate, while the ground ring exclusively represents the machine's last operational state with connectivity-aware attenuation.
-
-Version `0.8` does not change the shared four-second activity monitor, connectivity thresholds, operational-state mappings, machine registration, MQTT or IoT Agent behavior, personal layout persistence, FIWARE security, or predictive-maintenance calculations.
-
-Version `0.7.3` fixes live machine-state synchronization across Current State, Machines In Use, and the 3D Digital Twin. All three views now use one shared activity source, refresh every four seconds, and preserve their current filters, selection, camera, hover, and layout state while data changes.
-
-Version `0.7.3` does not change connectivity thresholds, machine operational-state mappings, MQTT payloads, IoT Agent behavior, FIWARE security, 3D layout persistence, or predictive-maintenance calculations.
-
-Version `0.7.2` adapts the custom IoT Agent to the immutable MQTT contract of the real machines. Bounded JSON metrics are normalized into a numeric operational value plus independently stored minimum and maximum limits, while bounded queues and runtime limits prevent telemetry bursts from causing unbounded heap growth.
-
-Version `0.7.2` does not change real-machine MQTT topics or payloads, automatic provisioning mappings, the MQTT simulator payload contract, FIWARE authentication/authorization, or predictive-maintenance calculations.
-
-Version `0.7.1` is a minimal compatibility and data-model correction. It standardizes the machine attribute builders on the NGSI types used by this project and changes the MQTT simulator's `maximum/value` counters from escaped text to real structured JSON values.
-
-Version `0.7.1` does not change the IoT Agent, authentication, authorization, connectivity thresholds, 3D factory behavior, or predictive-maintenance scope established by v0.7.
-
-Version `0.7` adds explicit machine-connectivity monitoring based on `iamalive`, separates connectivity from the last reported operational state throughout the portal, and redesigns the anonymous entry experience without changing the Keyrock OAuth Authorization Code flow.
-
-Version `0.7` still does **not** train or run ML predictions. The machine inspector continues to show `Sem previsão disponível`; this release focuses on trustworthy communication state, clearer access boundaries, and a more coherent MTEX NS entry point.
-
-Version `0.6` strengthens the personal multi-machine 3D factory introduced in v0.5. Machines can now be selected directly on the map, each asset receives a stable visual identity, the map is presented as a procedural MTEX NS factory environment, and machine provisioning uses a required, validated Asset ID.
-
-Version `0.6` still does **not** train or run ML predictions. The inspector continues to show `Sem previsão disponível` until prediction data exists, and personal layout metadata remains separate from Orion, IoT Agent, and the rest of FIWARE.
+Version `1.0.0` does not yet generate synthetic history, train or run models, write predictions to FIWARE, change the
+portal placeholder, export enterprise data, or alter MQTT, IoT Agent, Orion, QuantumLeap, CrateDB, BFF, authentication,
+authorization, connectivity, or machine-state behavior.
 
 The existing Phase II security model remains the baseline: browser traffic goes through the portal, PEP Proxy, API Gateway, Keyrock, and AuthzForce policies. CrateDB and QuantumLeap are intentionally kept internal-only.
 
@@ -42,11 +18,69 @@ The existing Phase II security model remains the baseline: browser traffic goes 
 
 **Phase**: `Phase III - Predictive Maintenance`
 
-**Version**: `0.8.1`
+**Version**: `1.0.0`
 
 **Author**: Tiago Lemos
 
 **Licence**: MIT
+
+---
+
+## Scope of v1.0.0
+
+### Implemented
+
+- Frozen MVP configuration version `1.0.0` under `ml/config`
+- Canonical `maintenanceNeedProbability` objective, explicitly separated from real failure-probability claims
+- Four initial components covering calendar, distance, vacuum-filter condition, and supply-pump condition maintenance
+- Shared 24-hour lookback with 24-hour and 7-day prediction horizons
+- One global LightGBM contract per horizon, with ETA and logistic regression retained as mandatory offline comparisons
+- Machine-disjoint train, validation, test, and prospective MQTT boundaries
+- Minimum independent-event gates per component before a dataset may be frozen
+- Causal missing-data, forward-fill, stale-telemetry, reset, and data-coverage policies
+- Validation-only threshold selection and visual status precedence
+- ARM64 training and x86-64 runtime responsibilities with portable model artifacts
+- Synthetic, prospective MQTT, and real-enterprise data-source boundaries
+- Explicit included and excluded scope for the four-week implementation
+- SHA-256 checksums covering every frozen YAML configuration file
+
+### New
+
+| File | Purpose |
+|------|---------|
+| `ml/config/mvp.yaml` | Freezes the objective, time, models, datasets, quality gates, device roles, and MVP scope |
+| `ml/config/components.yaml` | Defines the four components, observable signals, label sources, hidden-state boundaries, ETA roles, and forbidden features |
+| `ml/config/scenarios.yaml` | Freezes seeds, generation modes, split scenario pools, robustness reservations, prospective MQTT boundaries, event gates, and intervention policy |
+| `ml/config/decision_policy.yaml` | Defines prediction availability, threshold-selection rules, alert episodes, horizon coherence, portal statuses, and non-automated actions |
+| `ml/config/checksums.sha256` | Detects any unversioned change to the frozen configuration |
+
+The predictive Python simulator may expose `pressure_supply_color_1` for the supply-pump condition experiment. This is
+declared as a synthetic extension because the current ESP32 catalogue only exposes wiper-suction pressure signals. It is
+optional for real-data shadow execution and must not be confused with an existing real-machine sensor.
+
+### Why
+
+- Prevent target, horizon, component, split, or threshold-policy changes after model results are observed
+- Keep dataset generation, training, inference, FIWARE persistence, and thesis reporting aligned to one contract
+- Make every future dataset and model traceable to an exact configuration checksum
+- Keep hidden synthetic degradation and prospective machines out of training features
+- Distinguish synthetic quantitative validation from unlabelled real-enterprise profiling and shadow inference
+- Allow MacBook training and home-server inference without treating container images as cross-architecture artefacts
+- Protect the one-month implementation window by recording optional work and non-goals before coding begins
+
+### Not Changed
+
+- No synthetic telemetry generator, labels, features, model training, calibration, SHAP, or inference service
+- No `MaintenancePrediction` Orion entities, QuantumLeap subscription, CrateDB prediction table, or BFF endpoints
+- No predictive-maintenance portal panel or external notifications
+- No enterprise ML deployment, automatic retraining, automatic work orders, or machine control
+- No changes to the existing ESP32 simulator, MQTT topics/payloads, IoT Agent, Orion, QuantumLeap, CrateDB, or historical subscription
+- No changes to OAuth Authorization Code flow, Keyrock, PEP Proxy, AuthzForce, FIWARE tenant headers, connectivity thresholds, operational-state mappings, 3D factory, or personal layouts
+- No claim that synthetic model results represent validated production performance
+
+This release establishes the immutable experimental boundary for the implementation that follows. A future change to
+the frozen contract requires a version bump, a recorded reason, regenerated checksums, and explicit identification of
+the affected datasets and models.
 
 ---
 

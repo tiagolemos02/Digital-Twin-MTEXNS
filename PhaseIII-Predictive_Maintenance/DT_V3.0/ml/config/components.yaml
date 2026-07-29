@@ -1,0 +1,141 @@
+config_version: "1.0.0"
+
+label_contract:
+  target: maintenance_due_within_horizon
+  allowed_initial_sources:
+    - threshold_proxy
+    - simulated_condition_event
+  horizons_hours:
+    - 24
+    - 168
+  hidden_ground_truth_visibility: evaluation_only
+
+shared_observable_attributes:
+  connectivity:
+    - iamalive
+  operation:
+    - machine_status
+    - copies_requested
+    - copies_printed
+  environment:
+    - ambient_temperature
+    - ambient_humidity
+    - ink_area_temperature
+    - ink_area_humidity
+
+components:
+  print_bar_calendar:
+    display_name: Print bar calendar maintenance
+    maintenance_mode: threshold
+    label_source: threshold_proxy
+    primary_attribute: print_bar_time_since_last_pm
+    observable_limit_attribute: print_bar_time_since_last_pm_maximum
+    event_rule: observed_value_reaches_asof_maximum
+    reset_rule: observed_counter_drop_after_maintenance
+    component_attributes:
+      - print_bar_time_since_last_pm
+    contextual_attributes:
+      - machine_status
+    eta:
+      enabled: true
+      source_attribute: print_bar_time_since_last_pm
+
+  print_bar_distance:
+    display_name: Print bar distance maintenance
+    maintenance_mode: threshold
+    label_source: threshold_proxy
+    primary_attribute: print_bar_traveled_distance_since_last_pm
+    observable_limit_attribute: print_bar_traveled_distance_since_last_pm_maximum
+    event_rule: observed_value_reaches_asof_maximum
+    reset_rule: observed_counter_drop_after_maintenance
+    component_attributes:
+      - print_bar_traveled_distance_since_last_pm
+      - speed_mms_print_bar
+      - speed_rpm_print_bar
+    contextual_attributes:
+      - machine_status
+      - copies_requested
+      - copies_printed
+      - ink_area_temperature
+      - ink_area_humidity
+    eta:
+      enabled: true
+      source_attribute: print_bar_traveled_distance_since_last_pm
+
+  transport_vacuum_filter:
+    display_name: Transport vacuum filter maintenance
+    maintenance_mode: condition
+    label_source: simulated_condition_event
+    primary_attribute: transport_vacuum_work_time_since_last_air_filter_pm
+    observable_limit_attribute: transport_vacuum_work_time_since_last_air_filter_pm_maximum
+    event_rule: hidden_degradation_reaches_threshold
+    reset_rule: ground_truth_maintenance_event_resets_hidden_degradation
+    component_attributes:
+      - transport_vacuum_work_time_since_last_air_filter_pm
+      - speed_mms_transport
+      - speed_rpm_transport
+    contextual_attributes:
+      - machine_status
+      - copies_printed
+      - ambient_temperature
+      - ambient_humidity
+    hidden_state:
+      published_to_mqtt: false
+      permitted_in_features: false
+      drivers:
+        - vacuum_work_time
+        - operational_duty_cycle
+        - production_load
+        - environmental_stress
+        - process_noise
+    eta:
+      enabled: true
+      source_attribute: transport_vacuum_work_time_since_last_air_filter_pm
+      role: imperfect_condition_baseline
+
+  supply_pump_color_1:
+    display_name: Supply pump color 1 maintenance
+    maintenance_mode: condition
+    label_source: simulated_condition_event
+    primary_attribute: pump_supply_color_1_work_time_since_replacement
+    observable_limit_attribute: pump_supply_color_1_work_time_since_replacement_maximum
+    event_rule: hidden_degradation_reaches_threshold
+    reset_rule: ground_truth_maintenance_event_resets_hidden_degradation
+    component_attributes:
+      - pump_supply_color_1_work_time_since_replacement
+      - pressure_supply_color_1
+    contextual_attributes:
+      - machine_status
+      - copies_printed
+      - ink_area_temperature
+      - ink_area_humidity
+    synthetic_extensions:
+      - attribute: pressure_supply_color_1
+        type: Number
+        purpose: Observable supply-pump pressure for the predictive simulator
+        present_in_esp32_simulator: false
+        required_for_real_shadow: false
+    hidden_state:
+      published_to_mqtt: false
+      permitted_in_features: false
+      drivers:
+        - pump_work_time
+        - pressure_instability
+        - temperature_stress
+        - production_load
+        - process_noise
+    eta:
+      enabled: true
+      source_attribute: pump_supply_color_1_work_time_since_replacement
+      role: imperfect_condition_baseline
+
+feature_exclusions:
+  - machine_id
+  - nominal_machine_profile
+  - simulator_seed
+  - scenario_id
+  - future_event_time
+  - hidden_degradation
+  - synthetic_cause
+  - label
+  - future_machine_status

@@ -1,0 +1,100 @@
+config_version: "1.0.0"
+
+prediction:
+  probability_name: maintenanceNeedProbability
+  horizons_hours:
+    - 24
+    - 168
+  interval_minutes: 30
+  eta_displayed_as_explanation: true
+  lightgbm_is_deployed_model: true
+  automatic_method_routing: false
+
+data_availability:
+  minimum_history_hours: 24
+  minimum_coverage_ratio: 0.80
+  stale_telemetry_minutes: 10
+  essential_counter_stale_minutes: 30
+  forward_fill_minutes:
+    environment_pressure_speed: 10
+    counters: 15
+  limits_use_asof_join: true
+  allow_future_fill: false
+  allow_rates_across_resets: false
+  allow_rates_across_gaps: false
+
+threshold_selection:
+  source_split: validation
+  objective: maximize_recall_within_false_alert_budget
+  maximum_new_false_alerts_per_machine_week: 1.0
+  threshold_24h: null
+  threshold_7d: null
+  test_data_may_select_thresholds: false
+
+alert_episode:
+  count_predictions_as_independent_alerts: false
+  starts_on_threshold_crossing: true
+  clear_after_below_threshold_cycles: 2
+  clear_after_maintenance_or_reset: true
+  suppress_new_episode_when_maintenance_overdue: true
+
+horizon_coherence:
+  invariant: displayed_7d_probability_greater_than_or_equal_to_24h
+  store_raw_probabilities: true
+  displayed_7d_rule: max_raw_7d_raw_24h
+  frequent_violation_action: block_promotion_and_review_calibration
+
+status_precedence:
+  - model_error
+  - stale_telemetry
+  - insufficient_data
+  - maintenance_overdue
+  - urgent_maintenance
+  - plan_maintenance
+  - normal
+
+statuses:
+  model_error:
+    condition: model_or_feature_schema_incompatible
+    probability_visible: false
+  stale_telemetry:
+    condition: no_machine_telemetry_within_stale_window
+    probability_visible: false
+  insufficient_data:
+    condition: history_or_coverage_or_essential_signal_gate_failed
+    probability_visible: false
+  maintenance_overdue:
+    condition: observable_threshold_already_reached
+    probability_visible: false
+    eta_hours: 0
+  urgent_maintenance:
+    condition: probability_24h_at_or_above_validation_threshold
+    probability_visible: true
+  plan_maintenance:
+    condition: probability_7d_at_or_above_validation_threshold_and_24h_below_threshold
+    probability_visible: true
+  normal:
+    condition: probability_7d_below_validation_threshold
+    probability_visible: true
+
+real_data:
+  supervised_training: false
+  quantitative_performance_metrics: false
+  profiling: true
+  shadow_inference: true
+  required_data_source_label: real_shadow
+  portal_copy: Experimental prediction not validated on real maintenance events
+
+actions:
+  portal_visual_status: true
+  external_notifications: false
+  automatic_work_orders: false
+  machine_control: false
+  machine_shutdown: false
+
+initial_experimental_targets:
+  false_alerts_per_machine_week: 1.0
+  desired_mean_lead_time_hours:
+    horizon_24h: 12
+    horizon_7d: 72
+  approved_enterprise_slo: false

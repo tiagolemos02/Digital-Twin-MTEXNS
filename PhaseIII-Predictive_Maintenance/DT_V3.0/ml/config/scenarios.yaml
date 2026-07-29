@@ -1,0 +1,123 @@
+config_version: "1.0.0"
+
+reproducibility:
+  master_seed: 20260729
+  per_machine_seed_derivation: sha256_master_seed_machine_id_scenario_id
+  persist_machine_state: true
+  record_generator_version: true
+  record_scenario_assignment: true
+  reuse_training_seed_outside_training: false
+
+generation_modes:
+  offline:
+    step_minutes: 5
+    initial_days_per_machine: 180
+    output_format: parquet
+    compression: zstd
+  mqtt_continuous:
+    publish_seconds: 60
+    initial_machine_count: 6
+    attribute_count:
+      minimum: 20
+      maximum: 30
+    persistent_state: true
+  mqtt_demonstration:
+    publish_seconds: 8
+    persistent_state: true
+
+historical_split:
+  train:
+    machine_count: 7
+    seed_namespace: train
+    scenario_pool:
+      - normal_operation
+      - high_production
+      - intermittent_operation
+      - temperature_stress
+      - humidity_stress
+      - supply_pressure_drift
+      - planned_maintenance
+  validation:
+    machine_count: 2
+    seed_namespace: validation
+    scenario_pool:
+      - normal_operation
+      - high_production
+      - intermittent_operation
+      - temperature_stress
+      - humidity_stress
+      - supply_pressure_drift
+      - planned_maintenance
+  test:
+    machine_count: 3
+    seed_namespace: test
+    scenario_pool:
+      - normal_operation
+      - high_production
+      - intermittent_operation
+      - temperature_stress
+      - humidity_stress
+      - supply_pressure_drift
+      - planned_maintenance
+
+robustness_scenarios:
+  reserved_from_training: true
+  scenarios:
+    - unseen_combined_stress
+    - unseen_accelerated_degradation
+    - limit_reconfiguration
+    - long_telemetry_gap
+    - high_sensor_noise
+    - invalid_sensor_burst
+
+prospective_mqtt:
+  reserved_from_historical_dataset: true
+  freeze_before_model_training: true
+  minimum_machine_count: 4
+  maximum_machine_count: 6
+  seed_namespace: prospective
+  scenario_pool:
+    - prospective_healthy
+    - prospective_calendar_wear
+    - prospective_intense_production
+    - prospective_temperature_stress
+    - prospective_pressure_instability
+    - prospective_combined_stress
+    - prospective_telemetry_gap
+    - prospective_maintenance_reset
+    - prospective_delayed_intervention
+  minimum_warmup_hours: 24
+  minimum_frozen_evaluation_days: 7
+
+maintenance_events:
+  ground_truth_transport: separate_file_or_table
+  publish_hidden_degradation_to_mqtt: false
+  urgent_intervention_delay_hours:
+    minimum: 1
+    maximum: 8
+  planned_intervention_delay_hours:
+    minimum: 24
+    maximum: 72
+  allow_delayed_intervention_scenarios: true
+  reset_after_intervention: true
+
+event_volume_gate:
+  independent_events_per_component:
+    train: 100
+    validation: 30
+    test: 30
+  if_gate_fails:
+    allowed_actions:
+      - increase_historical_machine_count
+      - increase_virtual_history_days
+    deadline: before_dataset_freeze
+    prohibited_actions:
+      - copy_test_events_into_training
+      - reuse_prospective_machines
+      - lower_gate_after_viewing_model_performance
+
+parameter_freeze:
+  scenario_families_frozen_in_this_version: true
+  physical_ranges_defined_during_generator_pilot: true
+  physical_ranges_must_freeze_before_dataset_generation: true
+  physical_range_changes_require_new_generator_config_version: true

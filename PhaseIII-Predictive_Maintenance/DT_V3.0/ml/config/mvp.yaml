@@ -1,0 +1,169 @@
+config_version: "1.0.0"
+
+freeze:
+  status: frozen
+  frozen_at: "2026-07-29"
+  source_plan: "../../../predictive-maintenance_implem.md"
+  change_policy:
+    require_version_bump: true
+    preserve_previous_versions: true
+    record_reason: true
+
+objective:
+  name: maintenance_need
+  probability_name: maintenanceNeedProbability
+  description: >-
+    Estimate whether a configured machine component will require maintenance
+    within each supported horizon from observable telemetry available at the
+    prediction time.
+  prohibited_claims:
+    - failureProbability
+    - confirmed_failure_prediction
+    - validated_production_performance
+
+time_contract:
+  canonical_timezone: UTC
+  canonical_live_timestamp: time_index
+  resample_minutes: 5
+  lookback_hours: 24
+  feature_windows_hours:
+    - 1
+    - 6
+    - 24
+  prediction_interval_minutes: 30
+  horizons:
+    - name: 24h
+      hours: 24
+    - name: 7d
+      hours: 168
+  mqtt_publish_seconds:
+    continuous: 60
+    demonstration: 8
+
+model_contract:
+  architecture: global_per_horizon
+  component_feature: component_key
+  required_offline_methods:
+    - eta
+    - logistic_regression
+    - lightgbm
+  optional_offline_methods:
+    - xgboost
+    - random_forest
+  deployed_methods:
+    - lightgbm
+  deployed_artifacts:
+    - lightgbm_24h
+    - lightgbm_7d
+  eta_usage:
+    evaluation_baseline: true
+    portal_explanation: true
+    automatic_model_routing: false
+  explainability:
+    shap_offline: true
+    shap_live: false
+
+dataset_contract:
+  initial_historical_machines: 12
+  historical_days_per_machine: 180
+  split_machines:
+    train: 7
+    validation: 2
+    test: 3
+  prospective_mqtt_machines:
+    minimum: 4
+    maximum: 6
+  minimum_independent_events_per_component:
+    train: 100
+    validation: 30
+    test: 30
+  allow_machine_count_increase_before_dataset_freeze: true
+  maximum_negative_to_positive_ratio: 20
+  machine_id_as_feature: false
+  nominal_machine_profile_as_feature: false
+  ground_truth_as_feature: false
+  disjoint_machine_ids: true
+  disjoint_seeds: true
+  test_selects_features_or_thresholds: false
+
+data_source_contract:
+  synthetic_historical:
+    supervised_training: true
+    quantitative_evaluation: true
+  mqtt_prospective:
+    supervised_training: false
+    quantitative_evaluation: true
+    freeze_before_training: true
+  real_enterprise:
+    supervised_training: false
+    quantitative_evaluation: false
+    profiling: true
+    experimental_shadow: true
+
+quality_contract:
+  minimum_history_hours: 24
+  minimum_coverage_ratio: 0.80
+  stale_telemetry_minutes: 10
+  essential_counter_stale_minutes: 30
+  forward_fill_minutes:
+    environment_pressure_speed: 10
+    counters: 15
+  causal_forward_fill_only: true
+  calculate_rates_across_resets: false
+  calculate_rates_across_gaps: false
+  missing_prediction_is_zero_risk: false
+
+execution_contract:
+  training_device: macbook
+  runtime_device: home_server
+  real_data_analysis_device: windows_pc
+  enterprise_server_role: collection_and_read_only_export
+  training_architecture: arm64
+  runtime_architecture: x86_64
+  transfer_container_images_between_architectures: false
+  transfer_portable_model_artifacts: true
+  automated_retraining: false
+  manual_promotion: true
+  manual_rollback: true
+
+scope:
+  included:
+    - synthetic_offline_generation
+    - synthetic_mqtt_generation
+    - real_data_read_only_export
+    - real_data_profiling
+    - causal_resampling
+    - maintenance_labels
+    - feature_engineering
+    - eta_baseline
+    - logistic_regression_baseline
+    - lightgbm_training
+    - offline_calibration
+    - offline_shap
+    - batch_inference
+    - fiware_prediction_persistence
+    - read_only_bff_endpoints
+    - visual_portal_status
+    - prospective_mqtt_test
+    - load_test
+  excluded:
+    - enterprise_ml_deployment
+    - real_failure_prediction_claims
+    - all_75_maintenance_counters
+    - external_notifications
+    - automatic_work_orders
+    - machine_control
+    - automatic_retraining
+    - live_shap
+    - automatic_eta_lightgbm_routing
+    - mandatory_xgboost
+    - mandatory_random_forest
+    - public_cratedb
+    - public_anonymous_mqtt
+    - esp32_simulator_changes
+
+config_files:
+  components: components.yaml
+  scenarios: scenarios.yaml
+  decision_policy: decision_policy.yaml
+  checksums: checksums.sha256
