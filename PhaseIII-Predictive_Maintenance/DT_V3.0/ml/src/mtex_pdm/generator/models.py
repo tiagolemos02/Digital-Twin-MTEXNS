@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 from datetime import UTC
 from enum import StrEnum
 from typing import Annotated
@@ -24,6 +25,7 @@ from mtex_pdm.contracts import (
     ComponentKey,
     DatasetSplit,
     DataSource,
+    LabelSource,
 )
 
 RuntimeIdentifier = Annotated[
@@ -100,6 +102,40 @@ class ObservableMachineState(_RuntimeModel):
         updated.sort(key=lambda signal: signal.name)
         return self.model_copy(update={"numeric_signals": tuple(updated)})
 
+    def with_values(self, values: Mapping[str, float]) -> ObservableMachineState:
+        """Return a new state with several validated canonical values replaced."""
+
+        by_name = {signal.name: signal for signal in self.numeric_signals}
+        for name, value in values.items():
+            if not math.isfinite(value):
+                raise ValueError("observable numeric values must be finite")
+            by_name[name] = NumericSignal(name=name, value=value)
+        return self.model_copy(
+            update={"numeric_signals": tuple(by_name[name] for name in sorted(by_name))}
+        )
+
+    def without(self, *names: str) -> ObservableMachineState:
+        """Return a measurement with selected sensors absent, without changing process state."""
+
+        removed = set(names)
+        return self.model_copy(
+            update={
+                "numeric_signals": tuple(
+                    signal for signal in self.numeric_signals if signal.name not in removed
+                )
+            }
+        )
+
+
+class MaintenanceLifecycleStatus(StrEnum):
+    NORMAL = "normal"
+    AWAITING_INTERVENTION = "awaiting_intervention"
+
+
+class MaintenanceSeverity(StrEnum):
+    PLANNED = "planned"
+    URGENT = "urgent"
+
 
 class ComponentHiddenState(_RuntimeModel):
     """Basic, simulation-only state for one maintenance component."""
@@ -107,12 +143,39 @@ class ComponentHiddenState(_RuntimeModel):
     component_key: ComponentKey
     degradation: FiniteFloat = Field(ge=0.0, le=1.0)
     synthetic_cause: str | None = Field(default=None, min_length=1)
+    maintenance_status: MaintenanceLifecycleStatus = MaintenanceLifecycleStatus.NORMAL
+    maintenance_due_at: RuntimeUTCDateTime | None = None
+    planned_maintenance_at: RuntimeUTCDateTime | None = None
+    active_event_id: RuntimeIdentifier | None = None
+    active_severity: MaintenanceSeverity | None = None
+    event_sequence: int = Field(default=0, ge=0)
+
+    @model_validator(mode="after")
+    def validate_maintenance_lifecycle(self) -> ComponentHiddenState:
+        active_values = (
+            self.maintenance_due_at,
+            self.active_event_id,
+            self.active_severity,
+        )
+        if self.maintenance_status is MaintenanceLifecycleStatus.NORMAL:
+            if any(value is not None for value in (*active_values, self.planned_maintenance_at)):
+                raise ValueError("normal component cannot contain an active maintenance lifecycle")
+        elif any(value is None for value in active_values):
+            raise ValueError("awaiting component requires due time, event ID, and severity")
+        if (
+            self.planned_maintenance_at is not None
+            and self.maintenance_due_at is not None
+            and self.planned_maintenance_at < self.maintenance_due_at
+        ):
+            raise ValueError("planned maintenance cannot precede maintenance due")
+        return self
 
 
 class HiddenMachineState(_RuntimeModel):
     """Ground truth which must never enter telemetry or model features."""
 
     components: tuple[ComponentHiddenState, ...] = ()
+    scenario_phase: str = Field(default="initial", min_length=1)
 
     @model_validator(mode="after")
     def require_unique_components(self) -> HiddenMachineState:
@@ -203,6 +266,9 @@ class StepContext(_RuntimeModel):
     time_index: RuntimeUTCDateTime
     step_index: int = Field(ge=0)
     step_seconds: int = Field(gt=0)
+    machine_seed: int = Field(ge=0, le=2**64 - 1)
+    data_source: DataSource
+    split: DatasetSplit
 
 
 class TelemetrySnapshot(_RuntimeModel):
@@ -225,6 +291,51 @@ class GroundTruthSnapshot(_RuntimeModel):
     hidden: HiddenMachineState
 
 
+class GroundTruthEventKind(StrEnum):
+    MAINTENANCE_DUE = "maintenance_due"
+    MAINTENANCE_PERFORMED = "maintenance_performed"
+
+
+class GroundTruthEvent(_RuntimeModel):
+    """Append-only runtime marker for one synthetic maintenance lifecycle."""
+
+    event_id: RuntimeIdentifier
+    kind: GroundTruthEventKind
+    machine_id: RuntimeIdentifier
+    component_key: ComponentKey
+    label_source: LabelSource
+    data_source: DataSource
+    split: DatasetSplit
+    scenario_id: RuntimeIdentifier
+    occurred_at: RuntimeUTCDateTime
+    maintenance_due_at: RuntimeUTCDateTime
+    severity: MaintenanceSeverity
+
+    @model_validator(mode="after")
+    def validate_event_order(self) -> GroundTruthEvent:
+        if self.kind is GroundTruthEventKind.MAINTENANCE_DUE:
+            if self.occurred_at != self.maintenance_due_at:
+                raise ValueError("maintenance_due must occur at maintenance_due_at")
+        elif self.occurred_at < self.maintenance_due_at:
+            raise ValueError("maintenance_performed cannot precede maintenance_due")
+        return self
+
+
+class TelemetryEmission(_RuntimeModel):
+    """One measured state, allowing a transition to suppress or duplicate telemetry."""
+
+    time_index: RuntimeUTCDateTime
+    observable: ObservableMachineState
+
+
+class StepOutcome(_RuntimeModel):
+    """Complete result of one causal machine transition."""
+
+    next_state: MachineState
+    telemetry: tuple[TelemetryEmission, ...]
+    events: tuple[GroundTruthEvent, ...] = ()
+
+
 class GenerationSummary(_RuntimeModel):
     """Small receipt returned by one engine run call."""
 
@@ -232,6 +343,7 @@ class GenerationSummary(_RuntimeModel):
     machine_count: int = Field(gt=0)
     telemetry_snapshot_count: int = Field(ge=0)
     ground_truth_snapshot_count: int = Field(ge=0)
+    ground_truth_event_count: int = Field(default=0, ge=0)
     next_time_index: RuntimeUTCDateTime | None
 
 
@@ -251,6 +363,7 @@ class GeneratorCheckpoint(_RuntimeModel):
     """Portable in-progress engine state tied to one exact run configuration."""
 
     config_sha256: Sha256Digest
+    transition_sha256: Sha256Digest
     next_time_index: RuntimeUTCDateTime
     machines: tuple[MachineCheckpoint, ...] = Field(min_length=1)
 

@@ -1,18 +1,18 @@
 # MTEX Predictive-Maintenance Module
 
-Version `1.1.1` adds the first executable synthetic-generator core on top of the
-frozen configuration, reproducible environment, data contracts, and typed
-four-component registry delivered by v1.0.0–v1.0.3. It can advance basic
-machine state over bounded UTC steps, emit separated in-memory telemetry and
-ground truth, and resume exactly from a serialized checkpoint.
+Version `1.1.2` adds causal pilot behaviour for the four maintenance components
+on top of the deterministic generator core introduced in v1.1.1. A machine now
+produces coherent observable signals, component-specific hidden degradation,
+scenario effects, maintenance due/performed events, and intervention resets.
+The in-memory output keeps telemetry, hidden snapshots, and lifecycle events in
+separate streams, and checkpoints resume the complete behaviour exactly.
 
-This version deliberately uses a pass-through state transition: it proves the
-clock, state, seed, output, and resume boundaries without yet claiming physical
-signal behavior. It does not write Parquet, publish MQTT, implement scenarios or
-maintenance, calculate labels or features, train models, connect to enterprise
-CrateDB, write predictions to FIWARE, or change the portal. The frozen
-configuration and schema contracts remain at `1.0.0`; the software release is
-`1.1.1`. They evolve independently.
+This remains a pilot implementation: source-native physical units and ranges
+must be confirmed before the historical dataset is frozen. It does not yet
+write Parquet, publish MQTT, calculate labels or features, train models, connect
+to enterprise CrateDB, write predictions to FIWARE, or change the portal. The
+frozen configuration and schema contracts remain at `1.0.0`; the software
+release is `1.1.2`. They evolve independently.
 
 ## Environment Contract
 
@@ -41,8 +41,8 @@ ml/
 ├── src/mtex_pdm/
 │   ├── component_registry.py # Typed four-component operational registry
 │   ├── contracts/           # Typed records, manifests, physical schemas, registry
-│   └── generator/           # Deterministic engine, state, checkpoints, output boundary
-├── tests/                   # Environment, contracts, components, and generator-core tests
+│   └── generator/           # Engine, causal behaviour, events, checkpoints, output boundary
+├── tests/                   # Environment, contracts, components, generator, and behaviour tests
 ├── .dockerignore
 ├── Dockerfile.training      # ARM64/x86-64 training and verification image
 ├── pyproject.toml           # Package metadata and tool configuration
@@ -204,7 +204,7 @@ The current report contains four components, eight shared observables, 21 unique
 observables in total, two condition components with hidden state, one synthetic
 extension, and nine mandatory leakage exclusions.
 
-## Executable generator core v1.1.1
+## Executable generator core (introduced in v1.1.1)
 
 `mtex_pdm.generator` now provides the common state engine for future offline and
 MQTT generation. The core is deliberately output-agnostic and does not sleep:
@@ -229,6 +229,7 @@ from mtex_pdm.generator import (
     GenerationMode,
     GeneratorEngine,
     InMemoryOutput,
+    MachineBehavior,
     MachineSimulationSpec,
 )
 
@@ -247,18 +248,17 @@ config = GenerationConfig(
     machines=(machine,),
 )
 output = InMemoryOutput()
-summary = GeneratorEngine(config).run(output)
+summary = GeneratorEngine(config, transition=MachineBehavior()).run(output)
 
 assert summary.tick_count == 3
 assert len(output.telemetry) == 3
 assert len(output.ground_truth) == 3
 ```
 
-The default transition keeps the initial state unchanged. This is intentional:
-v1.1.1 verifies the executable boundary before temperature, humidity, pressure,
-production, counters, degradation, scenarios, and maintenance rules are added.
-Those rules will implement the public `StateTransition` seam and return a new
-immutable `MachineState` for every step.
+The default `passthrough_transition` is retained for core-boundary tests and
+custom transition development. Production of pilot synthetic histories uses
+`MachineBehavior`, which implements the same public `StateTransition` seam and
+returns an immutable `StepOutcome` for every step.
 
 ### Observable and hidden state
 
@@ -292,10 +292,12 @@ derived seeds, and full RNG continuation. The checkpoint is a frozen Pydantic
 model and can be serialized with `model_dump_json()`.
 
 Restore it with `GeneratorEngine.from_checkpoint(...)`. Restoration fails
-closed if the SHA-256 of the complete generation configuration changes, if
-machine order or derived seeds differ, or if the continuation time is outside
-the configured interval. Tests verify that uninterrupted output is exactly
-equal to output produced before and after a serialized checkpoint.
+closed if either the SHA-256 of the complete generation configuration or the
+transition fingerprint changes, if machine order or derived seeds differ, or if
+the continuation time is outside the configured interval. The behaviour
+fingerprint covers its version, typed parameters, and scenario catalogue. Tests
+verify that uninterrupted telemetry, hidden state, and events are exactly equal
+to output produced before and after a serialized checkpoint.
 
 ### In-memory output boundary
 
@@ -303,6 +305,81 @@ equal to output produced before and after a serialized checkpoint.
 The engine itself emits incrementally and does not retain past snapshots. Do not
 use the memory output for the planned 12 × 180-day dataset; the later Parquet
 adapter will consume the same streaming interface and write bounded partitions.
+
+## Machine behaviour v1.1.2
+
+`MachineBehavior` is the first complete pilot implementation of the state
+transition. Its parameters are immutable and validated by `BehaviorParameters`.
+The defaults are software-versioned working assumptions, not confirmed
+industrial calibration: units, safe ranges, maxima, and degradation rates must
+be reviewed with source data and frozen under a new generator-configuration
+version before producing the definitive historical dataset.
+
+### Causal step order
+
+Every five-minute step follows one direction only:
+
+1. Read the previous observable and hidden state.
+2. Apply the assigned scenario and deterministic process variation.
+3. Advance production, work, calendar, distance, and component degradation.
+4. Detect threshold- or condition-based maintenance due events.
+5. Perform a scheduled intervention when its causal timestamp is reached.
+6. Reset only the affected component's counter and hidden degradation.
+7. Apply measurement noise or telemetry transport effects to the emitted copy.
+8. Emit observable telemetry, a separate hidden snapshot, and zero or more
+   ground-truth lifecycle markers.
+
+Process variation and measurement noise use independent deterministic random
+streams. Increasing sensor noise therefore changes the measured values without
+changing the physical trajectory, degradation, or event times. Missing,
+delayed, duplicated, invalid, and temporarily absent telemetry affect emissions
+only; the machine continues evolving internally.
+
+### Four component dynamics
+
+| Component | Main causal drivers | Due rule | Intervention reset |
+|-----------|---------------------|----------|--------------------|
+| Print bar — calendar | Elapsed calendar time | Counter reaches current calendar maximum | Calendar counter and component degradation |
+| Print bar — distance | Produced copies and travelled distance | Distance reaches current configured maximum | Distance counter and component degradation |
+| Transport vacuum air filter | Active time, load, and humidity | Work counter or hidden condition reaches limit | Vacuum-work counter and component degradation |
+| Supply pump colour 1 | Active time, ink-area temperature, and supply pressure instability | Work counter or hidden condition reaches limit | Pump-work counter and component degradation |
+
+Limits remain observable and may change prospectively. The
+`limit_reconfiguration` scenario, for example, lowers the distance maximum
+during the run; no past label or event is rewritten.
+
+### Scenarios and split reservations
+
+The catalogue implements every scenario ID frozen in `config/scenarios.yaml`:
+normal/high/intermittent production, temperature, humidity and bounded pressure stress,
+planned maintenance, held-out robustness cases, and prospective MQTT cases. It
+also provides explicit pilot aliases for delayed intervention, missing sensors,
+duplicates, delayed telemetry, and return after unavailability.
+
+Robustness scenarios are rejected from the training split. Prospective scenario
+IDs require `mqtt_prospective`, and prospective machines cannot use historical
+scenario IDs. These checks keep the future evaluation stream separate from
+historical model development.
+
+### Maintenance lifecycle and event assembly
+
+A component emits a deterministic `due` marker once when its first threshold or
+condition rule becomes true. Normal and planned policies assign a future
+intervention time inside the configured delay range; the delayed-intervention
+policy deliberately leaves the event open. On the intervention tick the engine
+emits `performed`, sets machine status to maintenance for that tick, and resets
+only the affected component.
+
+`assemble_maintenance_events(output.events, finalize_at=...)` converts the
+append-only runtime markers into canonical `MaintenanceEvent` records. Joined
+due/performed pairs are completed events; due markers without a performed marker
+at finalization become censored events. The assembler fails closed on duplicate,
+missing, temporally inconsistent, or cross-component marker pairs.
+
+The generator tests cover deterministic directions, process/measurement
+separation, telemetry anomalies, scenario reservations, threshold and condition
+events, delayed interventions, component-local resets, completed/censored event
+assembly, and exact checkpoint resume.
 
 ## Local Setup
 
@@ -393,9 +470,9 @@ second dependency graph, validates the frozen configuration, and runs the test
 suite. The final process uses a non-root user.
 
 ```bash
-docker build --file Dockerfile.training --tag mtex-pdm-training:1.1.1 .
-docker run --rm --cpus 2 --memory 4g mtex-pdm-training:1.1.1
-docker run --rm mtex-pdm-training:1.1.1 components-check --json
+docker build --file Dockerfile.training --tag mtex-pdm-training:1.1.2 .
+docker run --rm --cpus 2 --memory 4g mtex-pdm-training:1.1.2
+docker run --rm mtex-pdm-training:1.1.2 components-check --json
 ```
 
 The image defaults to the full `environment-check`. Its entry point is
@@ -403,7 +480,7 @@ The image defaults to the full `environment-check`. Its entry point is
 tools:
 
 ```bash
-docker run --rm --entrypoint python mtex-pdm-training:1.1.1 -m pytest
+docker run --rm --entrypoint python mtex-pdm-training:1.1.2 -m pytest
 ```
 
 ### Device-specific builds
@@ -415,7 +492,7 @@ docker buildx build \
   --platform linux/arm64 \
   --load \
   --file Dockerfile.training \
-  --tag mtex-pdm-training:1.1.1-arm64 \
+  --tag mtex-pdm-training:1.1.2-arm64 \
   .
 ```
 
@@ -426,7 +503,7 @@ docker buildx build \
   --platform linux/amd64 \
   --load \
   --file Dockerfile.training \
-  --tag mtex-pdm-training:1.1.1-amd64 \
+  --tag mtex-pdm-training:1.1.2-amd64 \
   .
 ```
 
@@ -479,7 +556,13 @@ Available now:
 - Immutable basic observable and hidden machine-state types with separated streams.
 - Stable per-machine seed derivation and isolated RNG streams.
 - Incremental output protocol with a temporary in-memory implementation.
-- JSON-serializable, config-bound engine checkpoints with exact deterministic resume.
+- Causal pilot behaviour for all four component definitions and canonical signals.
+- Historical, robustness, prospective, and telemetry-anomaly scenario catalogue.
+- Separate physical and measurement randomness so sensor noise cannot alter wear.
+- Threshold- and condition-based due events, scheduled/delayed interventions,
+  and component-local maintenance resets.
+- Append-only runtime markers and strict completed/censored event assembly.
+- JSON-serializable, config- and behaviour-bound checkpoints with exact resume.
 - Parquet and LightGBM smoke tests.
 - Reproducible, non-root ARM64/x86-64 Docker build.
 - Conservative default thread use and documented launch-time device limits.
@@ -487,11 +570,11 @@ Available now:
 Intentionally deferred to the next targets:
 
 - Confirmation of source-native physical units during the generator pilot.
-- Physical observable/hidden state dynamics and calibrated ranges.
-- Scenario modifiers, maintenance lifecycle, intervention delays, and reset rules.
+- Review and freeze of pilot physical ranges and degradation rates before dataset generation.
 - Historical Parquet generation, partitioning, manifests, checksums, and reports.
 - MQTT output and wall-clock scheduling for prospective machines.
-- Complete dataset reproducibility gate, labels, feature computation, training, and inference.
+- Complete dataset/event-volume reproducibility gate, labels, feature computation,
+  training, and inference.
 - Machine registration and prospective MQTT scenarios.
 - Read-only enterprise CrateDB export.
 - FIWARE prediction persistence and portal integration.

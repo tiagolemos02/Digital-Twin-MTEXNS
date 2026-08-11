@@ -1,30 +1,44 @@
 """Public API for the synthetic generator core."""
 
+from mtex_pdm.generator.behavior import (
+    BehaviorParameters,
+    MachineBehavior,
+    ScenarioProfile,
+    supported_scenario_ids,
+)
 from mtex_pdm.generator.engine import (
     GeneratorEngine,
     StateTransition,
     derive_machine_seed,
     passthrough_transition,
 )
+from mtex_pdm.generator.events import assemble_maintenance_events
 from mtex_pdm.generator.models import (
     ComponentHiddenState,
     GenerationConfig,
     GenerationMode,
     GenerationSummary,
     GeneratorCheckpoint,
+    GroundTruthEvent,
+    GroundTruthEventKind,
     GroundTruthSnapshot,
     HiddenMachineState,
     MachineCheckpoint,
     MachineSimulationSpec,
     MachineState,
+    MaintenanceLifecycleStatus,
+    MaintenanceSeverity,
     NumericSignal,
     ObservableMachineState,
     StepContext,
+    StepOutcome,
+    TelemetryEmission,
     TelemetrySnapshot,
 )
 from mtex_pdm.generator.output import GeneratorOutput, InMemoryOutput
 
 __all__ = [
+    "BehaviorParameters",
     "ComponentHiddenState",
     "GenerationConfig",
     "GenerationMode",
@@ -32,17 +46,27 @@ __all__ = [
     "GeneratorCheckpoint",
     "GeneratorEngine",
     "GeneratorOutput",
+    "GroundTruthEvent",
+    "GroundTruthEventKind",
     "GroundTruthSnapshot",
     "HiddenMachineState",
     "InMemoryOutput",
+    "MachineBehavior",
     "MachineCheckpoint",
     "MachineSimulationSpec",
     "MachineState",
+    "MaintenanceLifecycleStatus",
+    "MaintenanceSeverity",
     "NumericSignal",
     "ObservableMachineState",
+    "ScenarioProfile",
     "StateTransition",
     "StepContext",
+    "StepOutcome",
+    "TelemetryEmission",
     "TelemetrySnapshot",
+    "assemble_maintenance_events",
     "derive_machine_seed",
     "passthrough_transition",
+    "supported_scenario_ids",
 ]

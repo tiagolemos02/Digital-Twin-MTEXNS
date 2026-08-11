@@ -18,11 +18,25 @@ from mtex_pdm.generator.models import (
     MachineSimulationSpec,
     MachineState,
     StepContext,
+    StepOutcome,
+    TelemetryEmission,
     TelemetrySnapshot,
 )
 from mtex_pdm.generator.output import GeneratorOutput
 
-StateTransition = Callable[[MachineState, StepContext, random.Random], MachineState]
+StateTransition = Callable[
+    [MachineState, StepContext, random.Random],
+    MachineState | StepOutcome,
+]
+
+
+def _transition_sha256(transition: StateTransition) -> str:
+    explicit = getattr(transition, "fingerprint", None)
+    if isinstance(explicit, str):
+        return explicit
+    module = getattr(transition, "__module__", transition.__class__.__module__)
+    name = getattr(transition, "__qualname__", transition.__class__.__qualname__)
+    return canonical_sha256({"callable": f"{module}:{name}"})
 
 
 def derive_machine_seed(master_seed: int, machine_id: str, scenario_id: str) -> int:
@@ -62,6 +76,7 @@ class GeneratorEngine:
     ) -> None:
         self.config = config
         self._transition = transition
+        self._transition_sha256 = _transition_sha256(transition)
         self._next_time_index = config.start_at
         self._runtimes = tuple(self._initialize_runtime(machine) for machine in config.machines)
 
@@ -98,6 +113,8 @@ class GeneratorEngine:
             raise ValueError("checkpoint next_time_index is outside the generation interval")
 
         engine = cls(config, transition=transition)
+        if checkpoint.transition_sha256 != engine._transition_sha256:
+            raise ValueError("checkpoint transition does not match the current transition")
         engine._next_time_index = checkpoint.next_time_index
         restored_runtimes: list[_MachineRuntime] = []
         for runtime, saved in zip(engine._runtimes, checkpoint.machines, strict=True):
@@ -135,6 +152,7 @@ class GeneratorEngine:
             )
         return GeneratorCheckpoint(
             config_sha256=canonical_sha256(self.config),
+            transition_sha256=self._transition_sha256,
             next_time_index=self._next_time_index,
             machines=tuple(machines),
         )
@@ -153,6 +171,7 @@ class GeneratorEngine:
         tick_count = 0
         telemetry_count = 0
         ground_truth_count = 0
+        event_count = 0
         step_delta = timedelta(seconds=self.config.step_seconds)
 
         while self._next_time_index < self.config.end_at and (
@@ -166,21 +185,38 @@ class GeneratorEngine:
                     time_index=time_index,
                     step_index=runtime.step_index,
                     step_seconds=self.config.step_seconds,
+                    machine_seed=runtime.machine_seed,
+                    data_source=runtime.spec.data_source,
+                    split=runtime.spec.split,
                 )
-                next_state = self._transition(runtime.state, context, runtime.rng)
-                if not isinstance(next_state, MachineState):
-                    raise TypeError("state transition must return MachineState")
-                runtime.state = next_state
-                output.emit_telemetry(
-                    TelemetrySnapshot(
-                        machine_id=runtime.spec.machine_id,
-                        time_index=time_index,
-                        data_source=runtime.spec.data_source,
-                        split=runtime.spec.split,
-                        observable=next_state.observable,
+                transition_result = self._transition(runtime.state, context, runtime.rng)
+                if isinstance(transition_result, MachineState):
+                    outcome = StepOutcome(
+                        next_state=transition_result,
+                        telemetry=(
+                            TelemetryEmission(
+                                time_index=time_index,
+                                observable=transition_result.observable,
+                            ),
+                        ),
                     )
-                )
-                telemetry_count += 1
+                elif isinstance(transition_result, StepOutcome):
+                    outcome = transition_result
+                else:
+                    raise TypeError("state transition must return MachineState or StepOutcome")
+                next_state = outcome.next_state
+                runtime.state = next_state
+                for emission in outcome.telemetry:
+                    output.emit_telemetry(
+                        TelemetrySnapshot(
+                            machine_id=runtime.spec.machine_id,
+                            time_index=emission.time_index,
+                            data_source=runtime.spec.data_source,
+                            split=runtime.spec.split,
+                            observable=emission.observable,
+                        )
+                    )
+                    telemetry_count += 1
                 output.emit_ground_truth(
                     GroundTruthSnapshot(
                         machine_id=runtime.spec.machine_id,
@@ -191,6 +227,9 @@ class GeneratorEngine:
                     )
                 )
                 ground_truth_count += 1
+                for event in outcome.events:
+                    output.emit_event(event)
+                    event_count += 1
                 runtime.step_index += 1
             tick_count += 1
             self._next_time_index += step_delta
@@ -200,6 +239,7 @@ class GeneratorEngine:
             machine_count=len(self._runtimes),
             telemetry_snapshot_count=telemetry_count,
             ground_truth_snapshot_count=ground_truth_count,
+            ground_truth_event_count=event_count,
             next_time_index=(
                 None if self._next_time_index >= self.config.end_at else self._next_time_index
             ),

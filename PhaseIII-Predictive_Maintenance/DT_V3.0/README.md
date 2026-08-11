@@ -1,14 +1,14 @@
-# Phase III - Predictive Maintenance v1.1.1
+# Phase III - Predictive Maintenance v1.1.2
 
-**Version 1.1.1 adds the first executable synthetic-generator core: a deterministic UTC engine, basic observable/hidden state, separated in-memory streams, and exact checkpoint/resume behavior.**
+**Version 1.1.2 turns the deterministic generator core into causal machine histories with complete observable/hidden state, scenario effects, maintenance lifecycles, resets, and auditable ground-truth events.**
 
-Version `1.1.1` builds on the frozen v1.0.0 experiment, v1.0.1 environment, v1.0.2 data contracts, and v1.0.3 component
-registry. It adds an output-agnostic state loop, isolated per-machine random streams, strict run/state/checkpoint types,
-a temporary memory output, and six focused deterministic engine tests.
+Version `1.1.2` builds on the v1.1.1 engine and adds one `MachineBehavior` transition for operation, environment, production,
+speeds, pressure, counters, degradation, measurement effects, maintenance due/performed, and component-local reset. Fifteen
+new transition tests protect the scientific and causal boundaries of these histories.
 
-Version `1.1.1` can simulate bounded sequences of basic machine state, but it does not yet implement physical signal
-dynamics, scenarios, maintenance/reset behavior, Parquet datasets, MQTT publication, labels, features, training, inference,
-enterprise export, FIWARE prediction persistence, or portal changes.
+Version `1.1.2` generates coherent histories in memory. It does not yet freeze the pilot physical ranges, write Parquet
+datasets, publish MQTT, calculate labels/features, train models, connect to enterprise CrateDB, persist predictions in
+FIWARE, or change the portal.
 
 The existing Phase II security model remains the baseline: browser traffic goes through the portal, PEP Proxy, API Gateway, Keyrock, and AuthzForce policies. CrateDB and QuantumLeap are intentionally kept internal-only.
 
@@ -18,11 +18,82 @@ The existing Phase II security model remains the baseline: browser traffic goes 
 
 **Phase**: `Phase III - Predictive Maintenance`
 
-**Version**: `1.1.1`
+**Version**: `1.1.2`
 
 **Author**: Tiago Lemos
 
 **Licence**: MIT
+
+---
+
+## Scope of v1.1.2
+
+### Implemented
+
+- `MachineBehavior` causal transition plugged into the shared v1.1.1 `GeneratorEngine`
+- Full canonical observable state with machine status, production, ambient/ink environment, speeds, synthetic supply pressure,
+  four maintenance counters, and their current maxima
+- Reuse of existing status codes `203` (Printing), `12` (Standby), and `11` (Maintenance)
+- Smooth, stateful environmental and process dynamics rather than independent random values per row
+- Production-dependent speeds, copies, print-bar distance, vacuum work, and pump work
+- Four component hidden states with bounded degradation, causal description, lifecycle state, due/planned times, severity,
+  active event ID, and persistent event sequence
+- Calendar wear driven by elapsed time and distance wear driven by production instead of environmental stress
+- Vacuum-filter degradation driven by working time, production load, humidity, and process noise
+- Supply-pump degradation driven by working time, ink temperature, pressure deviation, and process noise
+- Typed scenario catalog covering every historical, robustness, and prospective ID frozen in `config/scenarios.yaml`
+- Enforcement that robustness scenarios cannot enter training and prospective scenarios require MQTT-prospective data
+- Operational, temperature, humidity, bounded pressure-drift, combined-stress, accelerated-degradation, planned-maintenance, delayed-intervention,
+  and limit-reconfiguration effects
+- Separate measurement layer for normal/high sensor noise, invalid bursts, missing sensors, complete gaps, duplicates, delayed
+  timestamps, and return after unavailability
+- Independent per-step measurement RNG, ensuring sensor noise cannot change hidden physical evolution
+- `StepOutcome` transition result containing next process state, zero/multiple telemetry emissions, and zero/multiple events
+- Append-only `maintenance_due` and `maintenance_performed` markers with deterministic IDs and label sources
+- Planned 24–72-hour and urgent 1–8-hour default intervention windows, plus intentionally delayed/censored intervention
+- Latched due lifecycle, preventing one maintenance need from becoming a new independent event at every positive tick
+- Atomic component-local reset only at performed intervention; unrelated counters/components continue evolving
+- Assembly of runtime markers into the existing canonical `MaintenanceEvent`, including censored open lifecycles
+- Transition fingerprint in checkpoints, preventing resume with changed behavior parameters or scenario catalog
+- Fifteen behavior tests covering coherent state, causal stresses, bounded multi-day pressure, measurement/process separation, gaps, limits, threshold and
+  condition events, intervention timing, component-local reset, censorship, scenario reservations, anomalies, and exact resume
+- Software, package, Docker-image, tests, and documentation advanced to `1.1.2`; frozen MVP and persisted-contract versions remain `1.0.0`
+
+### New
+
+| File | Purpose |
+|------|---------|
+| `ml/src/mtex_pdm/generator/behavior.py` | Implements typed pilot parameters, scenario profiles, physical transitions, degradation, maintenance, reset, and measurement effects |
+| `ml/src/mtex_pdm/generator/events.py` | Assembles append-only due/performed markers into canonical completed or censored maintenance lifecycles |
+| `ml/tests/test_machine_behavior.py` | Protects causal direction, scenario boundaries, leakage controls, events, resets, anomalies, and deterministic resume |
+
+### Why
+
+- Generate learnable temporal relationships instead of unrelated random sensor columns
+- Demonstrate both threshold and condition maintenance with the same four frozen component definitions
+- Preserve a hidden causal truth for synthetic labels while keeping it structurally unavailable to telemetry and features
+- Keep measurement failures realistic: losing or corrupting a sensor does not stop the machine's physical evolution
+- Count one maintenance lifecycle as one independent event, avoiding inflated evidence from overlapping positive rows
+- Make intervention delays and censoring explicit enough for later 24-hour/7-day label generation
+- Prevent robustness or prospective scenarios from leaking into supervised training
+- Keep the pilot scientifically honest by marking source-native ranges as provisional until plots and event volumes are reviewed
+- Prepare a streaming event/state result that the next Parquet and MQTT adapters can consume without rewriting behavior
+
+### Not Changed
+
+- Pilot behavior values are software-versioned but are not yet declared industrial units or frozen dataset parameters
+- No Parquet writer, dataset partitioning, generation manifest, checksums, or generation report
+- No MQTT broker connection or wall-clock publisher; MQTT run profiles still use the shared engine only
+- No final 12-machine × 180-day dataset or enforcement of the 100/30/30 event-volume gate
+- No 24-hour/7-day labels, causal resampling, features, model training, calibration, SHAP, or inference
+- No enterprise CrateDB access, export, SFTP automation, or real-machine registration
+- No FIWARE prediction persistence, BFF endpoint, portal component panel, notifications, work orders, or machine control
+- No edits to the four frozen v1.0.0 YAML files, their checksums, or persisted data-contract schemas
+- No changes to the ESP32 simulator, IoT Agent, Orion, QuantumLeap, CrateDB, authentication, authorization, or portal behavior
+- No claim that the synthetic histories reproduce industrial failure distributions or validate production performance
+
+Full behavior API, causal order, scenario boundaries, events, pilot parameters, and examples are documented in
+[`ml/README.md`](ml/README.md).
 
 ---
 
