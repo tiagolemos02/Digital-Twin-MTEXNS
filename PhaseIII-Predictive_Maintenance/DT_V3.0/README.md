@@ -1,12 +1,11 @@
-# Phase III - Predictive Maintenance v1.0.2
+# Phase III - Predictive Maintenance v1.0.3
 
-**Version 1.0.2 adds versioned logical and physical data contracts for CrateDB telemetry, canonical ML records, maintenance events, datasets, exports, features, and models while preserving the frozen v1.0.0 experiment and the v1.0.1 environment.**
+**Version 1.0.3 turns the four frozen maintenance definitions into one typed operational registry while preserving the v1.0.0 experimental configuration, v1.0.1 environment, and v1.0.2 data contracts.**
 
-Version `1.0.2` adds strict Pydantic contracts, generated JSON Schemas, Arrow/Parquet schemas, valid and invalid fixtures,
-CrateDB physical-type validation, privacy-safe normalization, versioned manifests, deterministic SHA-256 integrity,
-feature/model compatibility checks, CLI validation/export commands, Docker build checks, and expanded ML documentation.
+Version `1.0.3` adds immutable component definitions, strict semantic and telemetry-reference validation, a small lookup API,
+an operational `components-check` command, 19 focused registry tests, Docker build validation, and expanded module documentation.
 
-Version `1.0.2` does not yet generate synthetic history, calculate labels or features, train or run MVP models, connect to
+Version `1.0.3` does not yet generate synthetic history, calculate labels or features, train or run MVP models, connect to
 or export enterprise CrateDB data, write predictions to FIWARE, change the portal placeholder, or alter MQTT, IoT Agent,
 Orion, QuantumLeap, CrateDB, BFF, authentication, authorization, connectivity, or machine-state behavior.
 
@@ -18,11 +17,73 @@ The existing Phase II security model remains the baseline: browser traffic goes 
 
 **Phase**: `Phase III - Predictive Maintenance`
 
-**Version**: `1.0.2`
+**Version**: `1.0.3`
 
 **Author**: Tiago Lemos
 
 **Licence**: MIT
+
+---
+
+## Scope of v1.0.3
+
+### Implemented
+
+- Immutable Pydantic definitions for the component registry, label contract, shared observables, ETA, hidden state, and
+  synthetic extensions
+- Loading through the existing frozen configuration discovery and SHA-256 validation path
+- Exact enforcement of the four canonical component keys and their frozen order
+- One public registry interface to list components, obtain a definition by key, retrieve its ordered observable interface,
+  and list every referenced observable
+- Stable component definitions for print-bar calendar, print-bar distance, transport vacuum filter, and supply pump color 1
+- Coherence between `threshold` maintenance and `threshold_proxy` labels, observed-limit events, and counter-drop resets
+- Coherence between `condition` maintenance and simulated-condition labels, hidden-degradation events, and ground-truth resets
+- Validation that primary attributes belong to component signals and ETA remains enabled from the same primary attribute
+- Validation of every shared, component, contextual, limit, ETA, and synthetic-extension reference against the canonical
+  telemetry contract
+- Rejection of unknown attributes, duplicate/overlapping attribute lists, missing components, and invalid configuration fields
+- Explicit protection of `iamalive` as connectivity evidence rather than a component feature
+- Enforcement that condition components contain unique hidden-degradation drivers
+- Enforcement that hidden ground truth is neither published to MQTT nor permitted in model features
+- Enforcement of all nine frozen leakage exclusions
+- Detection of synthetic-only telemetry through the difference between canonical and real CrateDB attribute contracts
+- Explicit declaration of `pressure_supply_color_1` as a `Number` extension absent from the ESP32 simulator and optional for
+  real shadow execution
+- `components-check` CLI report with component, observable, hidden-state, extension, and leakage-exclusion counts
+- Docker build-time execution of frozen-config, component-registry, contract, and regression checks
+- Test-driven coverage of the public loader, parser, lookup interface, semantic invariants, telemetry boundary, and CLI
+
+### New
+
+| File | Purpose |
+|------|---------|
+| `ml/src/mtex_pdm/component_registry.py` | Loads, types, validates, reports, and exposes the four-component operational registry |
+| `ml/tests/test_components.py` | Protects the public registry and its cross-contract scientific and operational invariants |
+
+### Why
+
+- Give the generator, label builder, feature pipeline, models, inference jobs, and portal one source of component semantics
+- Prevent different modules from copying and gradually diverging on signal, event, reset, label, or ETA rules
+- Fail before generation or training when a component references telemetry that MQTT, CrateDB, or the canonical schema cannot supply
+- Keep synthetic ground truth outside published telemetry and model inputs, avoiding direct target leakage
+- Preserve the distinction between predictable threshold maintenance and simulated condition-based maintenance
+- Keep the synthetic pump-pressure experiment usable without pretending that the enterprise or ESP32 data contains that sensor
+- Make component configuration inspectable and testable evidence for the thesis while keeping the one-month implementation scope
+- Prepare a stable interface for the next generator and label implementation targets
+
+### Not Changed
+
+- No edits to `ml/config/components.yaml`, the other frozen v1.0.0 YAML files, or their checksums
+- No new component beyond the four MVP definitions and no implementation of all 75 maintenance counters
+- No generated historical or MQTT telemetry, degradation engine, maintenance events, labels, or features
+- No model training, calibration, SHAP, inference, prediction persistence, BFF endpoint, or portal component panel
+- No live CrateDB query, enterprise export, SSH/SFTP automation, machine registration, or scheduled collection
+- No changes to MQTT topics, IoT Agent, Orion, QuantumLeap, CrateDB tables, security, connectivity, or machine-state behavior
+- No assumption that undocumented source-native physical units have been confirmed
+- No claim of validated predictive performance on real industrial maintenance events
+
+Full component API, invariants, commands, Docker instructions, and current boundaries are documented in
+[`ml/README.md`](ml/README.md).
 
 ---
 

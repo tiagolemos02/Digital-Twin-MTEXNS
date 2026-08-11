@@ -1,4 +1,4 @@
-"""Command-line entry point for environment and configuration diagnostics."""
+"""Command-line entry point for ML configuration and contract diagnostics."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from mtex_pdm import __version__
+from mtex_pdm.component_registry import collect_component_registry_report
 from mtex_pdm.config_validation import ConfigValidationError, validate_frozen_config
 from mtex_pdm.contracts import validate_contract_bundle, write_contract_schemas
 from mtex_pdm.environment import collect_environment_report
@@ -41,7 +42,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
         prog="mtex-pdm",
-        description="MTEX predictive-maintenance environment diagnostics.",
+        description="MTEX predictive-maintenance configuration and environment diagnostics.",
     )
     parser.add_argument(
         "--version",
@@ -55,6 +56,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Validate frozen YAML checksums and critical cross-file invariants.",
     )
     _add_config_directory(config_parser)
+
+    components_parser = subparsers.add_parser(
+        "components-check",
+        help="Validate and summarize the four-component operational registry.",
+    )
+    _add_config_directory(components_parser)
 
     environment_parser = subparsers.add_parser(
         "environment-check",
@@ -131,6 +138,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if arguments.command == "config-check":
             config_report = validate_frozen_config(arguments.config_dir)
             report = {"healthy": True, **config_report.to_dict()}
+        elif arguments.command == "components-check":
+            report = collect_component_registry_report(arguments.config_dir)
         elif arguments.command == "environment-check":
             report = collect_environment_report(
                 arguments.config_dir,

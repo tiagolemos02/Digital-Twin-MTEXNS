@@ -1,16 +1,15 @@
 # MTEX Predictive-Maintenance Module
 
-Version `1.0.2` defines the versioned logical and physical data contracts used
-by the predictive-maintenance MVP. It validates rows read from the current
-QuantumLeap/CrateDB history, canonical privacy-safe telemetry, independent
-maintenance events, dataset/export/feature/model manifests, Arrow/Parquet
-schemas, SHA-256 integrity, and exact feature-to-model compatibility.
+Version `1.0.3` turns the four frozen maintenance definitions into a typed,
+validated operational registry shared by later generator, label, feature,
+training, inference, and portal work. It preserves the reproducible environment
+from v1.0.1 and the versioned data contracts from v1.0.2.
 
-This version defines and verifies contracts only. It does not generate telemetry,
-create labels or features, train models, connect to the enterprise CrateDB,
-publish MQTT messages, run inference, write predictions to FIWARE, or change the
-portal. The schema contract starts at `1.0.0`; the software release is `1.0.2`.
-They evolve independently.
+This version loads and verifies component definitions only. It does not generate
+telemetry, calculate labels or features, train models, connect to enterprise
+CrateDB, publish MQTT messages, run inference, write predictions to FIWARE, or
+change the portal. The frozen configuration and schema contracts remain at
+`1.0.0`; the software release is `1.0.3`. They evolve independently.
 
 ## Environment Contract
 
@@ -20,7 +19,7 @@ They evolve independently.
 | Container base | Official `python:3.12.13-slim-bookworm`, pinned by multi-platform digest | Repeatable ARM64 and x86-64 builds |
 | Data frame and files | Polars, PyArrow, Parquet with Zstandard compression | Efficient time-series processing and portable columnar artifacts |
 | Model stack | scikit-learn, LightGBM, SHAP, Matplotlib | Baselines, deployed candidate, offline explanations, and thesis figures |
-| Configuration | PyYAML and Pydantic | Frozen YAML validation now and typed schemas in the next implementation target |
+| Configuration | PyYAML and Pydantic | Frozen YAML integrity plus strict typed component and artifact contracts |
 | Verification | pytest, Ruff, mypy | Regression tests, lint/format checks, and strict static typing |
 | Default native threads | `1` inside Docker | Avoid competing with unrelated workloads on domestic devices |
 
@@ -37,8 +36,9 @@ ml/
 ├── examples/contracts/      # Valid and deliberately invalid contract fixtures
 ├── schemas/                 # Generated JSON/Arrow schemas and SHA-256 checksums
 ├── src/mtex_pdm/
+│   ├── component_registry.py # Typed four-component operational registry
 │   └── contracts/           # Typed records, manifests, physical schemas, registry
-├── tests/                   # Environment, configuration, and contract tests
+├── tests/                   # Environment, configuration, contract, and component tests
 ├── .dockerignore
 ├── Dockerfile.training      # ARM64/x86-64 training and verification image
 ├── pyproject.toml           # Package metadata and tool configuration
@@ -144,6 +144,61 @@ The second command also validates all committed valid fixtures, confirms that
 the deliberately invalid leakage/naive-time fixtures are rejected, and checks
 the example feature schema against the example model manifest.
 
+## Four-component operational registry
+
+`config/components.yaml` remains the frozen source of truth. Version 1.0.3 does
+not alter that file or its checksum; it validates the complete document and
+exposes immutable definitions through `mtex_pdm.component_registry`.
+
+| Component key | Mode | Label source | Principal observable |
+|---------------|------|--------------|----------------------|
+| `print_bar_calendar` | `threshold` | `threshold_proxy` | `print_bar_time_since_last_pm` |
+| `print_bar_distance` | `threshold` | `threshold_proxy` | `print_bar_traveled_distance_since_last_pm` |
+| `transport_vacuum_filter` | `condition` | `simulated_condition_event` | `transport_vacuum_work_time_since_last_air_filter_pm` |
+| `supply_pump_color_1` | `condition` | `simulated_condition_event` | `pump_supply_color_1_work_time_since_replacement` |
+
+The public interface is deliberately small:
+
+```python
+from mtex_pdm.component_registry import load_component_registry
+
+registry = load_component_registry()
+components = registry.list_components()
+distance = registry.get("print_bar_distance")
+attributes = registry.observable_attributes(distance.key)
+all_attributes = registry.all_observable_attributes
+```
+
+The registry fails closed when:
+
+- the four canonical keys or their order change;
+- a referenced attribute is absent from the canonical telemetry schema;
+- threshold and condition modes use the wrong label, event, or reset rule;
+- a primary attribute is not a component signal;
+- the ETA is disabled, uses a different source, or has a role incompatible with its mode;
+- a condition component lacks unique hidden-degradation drivers;
+- hidden ground truth is published to MQTT or permitted in features;
+- an obligatory leakage exclusion is removed;
+- component attribute lists overlap or contain duplicates;
+- `iamalive` is used as a component feature instead of connectivity evidence;
+- a synthetic-only signal is not declared as an extension;
+- a synthetic extension is made mandatory for real shadow data.
+
+`pressure_supply_color_1` is the one current synthetic extension. It is an
+observable signal for the Python predictive simulator, is absent from the ESP32
+simulator, and remains optional for real shadow data.
+
+Run the diagnostic from `DT_V3.0/ml`:
+
+```bash
+python -m mtex_pdm components-check
+python -m mtex_pdm components-check --json
+```
+
+The current report contains four components, eight shared observables, 21 unique
+observables in total, two condition components with hidden state, one synthetic
+extension, and nine mandatory leakage exclusions.
+
 ## Local Setup
 
 Run the following commands from `DT_V3.0/ml`.
@@ -193,6 +248,9 @@ python -m mtex_pdm --version
 # Frozen YAML integrity and semantic invariants
 python -m mtex_pdm config-check
 
+# Typed four-component registry and cross-contract references
+python -m mtex_pdm components-check
+
 # Generated schemas, examples, checksums, and compatibility
 python -m mtex_pdm contracts-check
 
@@ -217,7 +275,8 @@ python -m ruff format --check .
 python -m mypy
 ```
 
-`--config-dir PATH` may be passed to either check. The alternative
+`--config-dir PATH` may be passed to configuration, component, or environment
+checks. The alternative
 `MTEX_PDM_CONFIG_DIR` environment variable is useful inside containers. No
 credential or connection string belongs in the frozen YAML files.
 
@@ -229,9 +288,9 @@ second dependency graph, validates the frozen configuration, and runs the test
 suite. The final process uses a non-root user.
 
 ```bash
-docker build --file Dockerfile.training --tag mtex-pdm-training:1.0.2 .
-docker run --rm --cpus 2 --memory 4g mtex-pdm-training:1.0.2
-docker run --rm mtex-pdm-training:1.0.2 contracts-check --json
+docker build --file Dockerfile.training --tag mtex-pdm-training:1.0.3 .
+docker run --rm --cpus 2 --memory 4g mtex-pdm-training:1.0.3
+docker run --rm mtex-pdm-training:1.0.3 components-check --json
 ```
 
 The image defaults to the full `environment-check`. Its entry point is
@@ -239,7 +298,7 @@ The image defaults to the full `environment-check`. Its entry point is
 tools:
 
 ```bash
-docker run --rm --entrypoint python mtex-pdm-training:1.0.2 -m pytest
+docker run --rm --entrypoint python mtex-pdm-training:1.0.3 -m pytest
 ```
 
 ### Device-specific builds
@@ -251,7 +310,7 @@ docker buildx build \
   --platform linux/arm64 \
   --load \
   --file Dockerfile.training \
-  --tag mtex-pdm-training:1.0.2-arm64 \
+  --tag mtex-pdm-training:1.0.3-arm64 \
   .
 ```
 
@@ -262,7 +321,7 @@ docker buildx build \
   --platform linux/amd64 \
   --load \
   --file Dockerfile.training \
-  --tag mtex-pdm-training:1.0.2-amd64 \
+  --tag mtex-pdm-training:1.0.3-amd64 \
   .
 ```
 
@@ -304,6 +363,9 @@ Available now:
 - Installable `mtex-pdm` package and command-line diagnostics.
 - Hash-locked Python 3.12 environment.
 - Frozen-config integrity and cross-file invariant checks.
+- Immutable operational registry for the four MVP maintenance components.
+- Cross-validation of labels, events, resets, ETA, telemetry, hidden state,
+  leakage exclusions, and the optional synthetic pressure extension.
 - Strict CrateDB ingestion and canonical telemetry/event records.
 - Dataset, enterprise-export, feature, and model manifests.
 - Generated JSON Schemas and Arrow/Parquet physical schemas.
