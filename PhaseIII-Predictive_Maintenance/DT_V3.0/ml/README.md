@@ -1,15 +1,16 @@
 # MTEX Predictive-Maintenance Module
 
-Version `1.0.1` prepares the reproducible Python and Docker environment for the
-predictive-maintenance MVP. It validates the frozen v1.0.0 experimental contract,
-the supported processor architecture, the exact Python dependencies, Parquet
-input/output, and a minimal LightGBM fit before later implementation work uses
-the environment.
+Version `1.0.2` defines the versioned logical and physical data contracts used
+by the predictive-maintenance MVP. It validates rows read from the current
+QuantumLeap/CrateDB history, canonical privacy-safe telemetry, independent
+maintenance events, dataset/export/feature/model manifests, Arrow/Parquet
+schemas, SHA-256 integrity, and exact feature-to-model compatibility.
 
-This version is environment preparation only. It does not generate telemetry,
-create labels or features, train the two production-candidate models, run
-inference, query CrateDB, publish MQTT messages, write predictions to FIWARE, or
-change the portal.
+This version defines and verifies contracts only. It does not generate telemetry,
+create labels or features, train models, connect to the enterprise CrateDB,
+publish MQTT messages, run inference, write predictions to FIWARE, or change the
+portal. The schema contract starts at `1.0.0`; the software release is `1.0.2`.
+They evolve independently.
 
 ## Environment Contract
 
@@ -33,8 +34,11 @@ Python 3.12.
 ```text
 ml/
 ├── config/                  # Frozen v1.0.0 MVP contract and checksums
-├── src/mtex_pdm/            # Diagnostic Python package
-├── tests/                   # Environment and configuration contract tests
+├── examples/contracts/      # Valid and deliberately invalid contract fixtures
+├── schemas/                 # Generated JSON/Arrow schemas and SHA-256 checksums
+├── src/mtex_pdm/
+│   └── contracts/           # Typed records, manifests, physical schemas, registry
+├── tests/                   # Environment, configuration, and contract tests
 ├── .dockerignore
 ├── Dockerfile.training      # ARM64/x86-64 training and verification image
 ├── pyproject.toml           # Package metadata and tool configuration
@@ -48,6 +52,97 @@ The `requirements.in` file records intentional direct dependencies.
 transitive dependencies and accepted package hashes. Install from the lock for
 normal work. Regenerate it only as an explicit dependency update, followed by
 all checks and a versioned documentation entry.
+
+## Data Contract v1.0.0
+
+Pydantic models are the source of truth for JSON records and manifests. PyArrow
+is the source of truth for the two Parquet table layouts. Files under `schemas/`
+are generated views of those sources and are committed so that other languages,
+the thesis, and future jobs can inspect the contract without importing Python.
+
+| Contract | Purpose | Critical guarantees |
+|----------|---------|---------------------|
+| `CrateTelemetryRow` | Boundary row from `mtopeniot.etmachine` | Crate timestamp, text, and `REAL` values are validated; unrelated columns are ignored |
+| `TelemetryRecord` | Canonical row used by ML | UTC, pseudonymized machine ID, finite numbers, and source/split compatibility |
+| `MaintenanceEvent` | One independent due/performed lifecycle | Component-label consistency, causal time ordering, and no real shadow labels |
+| `DatasetManifest` | Frozen generated dataset identity | Split-disjoint machines, event gates, config/schema hashes, units, files, and provenance |
+| `ExportManifest` | Read-only enterprise export receipt | Requested/actual ranges, watermarks, pseudonymization version, status, and artifact hash |
+| `FeatureSchema` | Ordered model input interface | Stable zero-based order, types, windows, units, imputation, and leakage exclusions |
+| `ModelManifest` | Portable trained-model receipt | Exact dataset/code/generator lineage, horizons, components, thresholds, metrics, and files |
+
+All persisted contract models reject unknown fields, except the source
+`CrateTelemetryRow`: a CrateDB query can return unrelated machine attributes,
+which are deliberately ignored and never copied to the canonical record. The
+selected ML columns still have strict types.
+
+### CrateDB type boundary
+
+The repository's QuantumLeap schema synchronization maps the current values as
+follows:
+
+| Historical value | NGSI type | CrateDB type | Canonical Parquet type |
+|------------------|-----------|--------------|------------------------|
+| `entity_id`, `entity_type`, `iamalive` | `Text` | `TEXT` | UTF-8 string |
+| `time_index` | `DateTime` | `TIMESTAMP WITH TIME ZONE` | `timestamp[ms, UTC]` |
+| Selected telemetry and generated `_maximum` values | `Number` | `REAL` | `float64` |
+
+CrateDB HTTP `_sql` timestamps may be supplied as Unix milliseconds or as an
+ISO-8601 string with an explicit timezone. Naive timestamps, non-finite numeric
+values, wrong physical column types, missing essential columns, and raw
+enterprise IDs in export attribute lists are rejected.
+
+The real schema can be captured read-only with this query:
+
+```sql
+SELECT column_name, data_type, is_nullable
+FROM information_schema.columns
+WHERE table_schema = 'mtopeniot'
+  AND table_name = 'etmachine'
+ORDER BY column_name;
+```
+
+Save the HTTP result as JSON and validate it directly. The validator accepts
+either the raw CrateDB `cols`/`rows` response or the normalized snapshot format
+shown in `examples/contracts/crate_schema_snapshot.example.json`.
+
+```bash
+python -m mtex_pdm contracts-check \
+  --crate-schema path/to/cratedb-schema.json
+```
+
+No database credential, hostname, enterprise entity ID, or raw production row
+belongs in the repository. The supplied snapshot is a schema-only example.
+
+### Units and dataset freeze
+
+Attribute names that encode their units use `mm/s` and `rpm`, and all timestamps
+use UTC. The existing simulator and portal mapping do not document authoritative
+physical units for temperatures, humidity, counters, or pressure. Those fields
+are therefore marked `source_native_unconfirmed` instead of being guessed.
+A draft manifest may record that state; a `complete` dataset manifest cannot.
+The units and physical ranges must be confirmed during the generator pilot,
+before the first dataset freeze, as required by `config/scenarios.yaml`.
+
+### Manifest integrity and compatibility
+
+Every portable file descriptor contains a relative POSIX path, size, media type,
+role, optional row count, and SHA-256. Absolute paths and `..` traversal are
+invalid. JSON hashing uses sorted, whitespace-independent canonical encoding.
+Model loading must call `verify_feature_model_compatibility`; a different
+feature name, order, type, window, unit, imputation rule, or component scope
+changes the feature-schema hash and fails closed.
+
+`schemas/checksums.sha256` protects the generated schemas themselves. Regenerate
+them only after an intentional contract change:
+
+```bash
+python -m mtex_pdm contracts-export
+python -m mtex_pdm contracts-check
+```
+
+The second command also validates all committed valid fixtures, confirms that
+the deliberately invalid leakage/naive-time fixtures are rejected, and checks
+the example feature schema against the example model manifest.
 
 ## Local Setup
 
@@ -98,6 +193,15 @@ python -m mtex_pdm --version
 # Frozen YAML integrity and semantic invariants
 python -m mtex_pdm config-check
 
+# Generated schemas, examples, checksums, and compatibility
+python -m mtex_pdm contracts-check
+
+# Optional schema-only snapshot from the enterprise CrateDB
+python -m mtex_pdm contracts-check --crate-schema path/to/cratedb-schema.json
+
+# Intentional regeneration after changing Python contract sources
+python -m mtex_pdm contracts-export
+
 # Full machine/environment report
 python -m mtex_pdm environment-check
 
@@ -125,9 +229,9 @@ second dependency graph, validates the frozen configuration, and runs the test
 suite. The final process uses a non-root user.
 
 ```bash
-docker build --file Dockerfile.training --tag mtex-pdm-training:1.0.1 .
-docker run --rm --cpus 2 --memory 4g mtex-pdm-training:1.0.1
-docker run --rm mtex-pdm-training:1.0.1 config-check --json
+docker build --file Dockerfile.training --tag mtex-pdm-training:1.0.2 .
+docker run --rm --cpus 2 --memory 4g mtex-pdm-training:1.0.2
+docker run --rm mtex-pdm-training:1.0.2 contracts-check --json
 ```
 
 The image defaults to the full `environment-check`. Its entry point is
@@ -135,7 +239,7 @@ The image defaults to the full `environment-check`. Its entry point is
 tools:
 
 ```bash
-docker run --rm --entrypoint python mtex-pdm-training:1.0.1 -m pytest
+docker run --rm --entrypoint python mtex-pdm-training:1.0.2 -m pytest
 ```
 
 ### Device-specific builds
@@ -147,7 +251,7 @@ docker buildx build \
   --platform linux/arm64 \
   --load \
   --file Dockerfile.training \
-  --tag mtex-pdm-training:1.0.1-arm64 \
+  --tag mtex-pdm-training:1.0.2-arm64 \
   .
 ```
 
@@ -158,7 +262,7 @@ docker buildx build \
   --platform linux/amd64 \
   --load \
   --file Dockerfile.training \
-  --tag mtex-pdm-training:1.0.1-amd64 \
+  --tag mtex-pdm-training:1.0.2-amd64 \
   .
 ```
 
@@ -200,14 +304,18 @@ Available now:
 - Installable `mtex-pdm` package and command-line diagnostics.
 - Hash-locked Python 3.12 environment.
 - Frozen-config integrity and cross-file invariant checks.
+- Strict CrateDB ingestion and canonical telemetry/event records.
+- Dataset, enterprise-export, feature, and model manifests.
+- Generated JSON Schemas and Arrow/Parquet physical schemas.
+- Valid/invalid examples, SHA-256 integrity, and compatibility checks.
 - Parquet and LightGBM smoke tests.
 - Reproducible, non-root ARM64/x86-64 Docker build.
 - Conservative default thread use and documented launch-time device limits.
 
 Intentionally deferred to the next targets:
 
-- Typed data schemas and dataset manifests.
-- Generator, feature, training, and inference component implementations.
+- Confirmation of source-native physical units during the generator pilot.
+- Generator, labels, feature computation, training, and inference implementations.
 - Machine registration and prospective MQTT scenarios.
 - Read-only enterprise CrateDB export.
 - FIWARE prediction persistence and portal integration.

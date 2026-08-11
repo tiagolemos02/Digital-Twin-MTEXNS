@@ -1,0 +1,144 @@
+{
+  "$defs": {
+    "ComponentKey": {
+      "enum": [
+        "print_bar_calendar",
+        "print_bar_distance",
+        "transport_vacuum_filter",
+        "supply_pump_color_1"
+      ],
+      "title": "ComponentKey",
+      "type": "string"
+    },
+    "FeatureDType": {
+      "enum": [
+        "float64",
+        "int64",
+        "boolean",
+        "category"
+      ],
+      "title": "FeatureDType",
+      "type": "string"
+    },
+    "FeatureDefinition": {
+      "additionalProperties": false,
+      "properties": {
+        "components": {
+          "items": {
+            "$ref": "#/$defs/ComponentKey"
+          },
+          "title": "Components",
+          "type": "array"
+        },
+        "dtype": {
+          "$ref": "#/$defs/FeatureDType"
+        },
+        "imputation": {
+          "minLength": 1,
+          "title": "Imputation",
+          "type": "string"
+        },
+        "name": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+          "title": "Name",
+          "type": "string"
+        },
+        "nullable": {
+          "title": "Nullable",
+          "type": "boolean"
+        },
+        "position": {
+          "minimum": 0,
+          "title": "Position",
+          "type": "integer"
+        },
+        "unit": {
+          "minLength": 1,
+          "title": "Unit",
+          "type": "string"
+        },
+        "window_hours": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Window Hours"
+        }
+      },
+      "required": [
+        "name",
+        "position",
+        "dtype",
+        "unit",
+        "nullable",
+        "imputation",
+        "components"
+      ],
+      "title": "FeatureDefinition",
+      "type": "object"
+    }
+  },
+  "$id": "https://mtex.local/schemas/v1/feature_schema.schema.json",
+  "additionalProperties": false,
+  "properties": {
+    "feature_set_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+      "title": "Feature Set Id",
+      "type": "string"
+    },
+    "features": {
+      "items": {
+        "$ref": "#/$defs/FeatureDefinition"
+      },
+      "title": "Features",
+      "type": "array"
+    },
+    "horizons_hours": {
+      "maxItems": 2,
+      "minItems": 2,
+      "prefixItems": [
+        {
+          "enum": [
+            24,
+            168
+          ],
+          "type": "integer"
+        },
+        {
+          "enum": [
+            24,
+            168
+          ],
+          "type": "integer"
+        }
+      ],
+      "title": "Horizons Hours",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "1.0.0",
+      "default": "1.0.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "target": {
+      "const": "maintenanceNeedProbability",
+      "title": "Target",
+      "type": "string"
+    }
+  },
+  "required": [
+    "feature_set_id",
+    "target",
+    "horizons_hours",
+    "features"
+  ],
+  "title": "FeatureSchema",
+  "type": "object"
+}

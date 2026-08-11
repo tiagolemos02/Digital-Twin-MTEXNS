@@ -1,0 +1,13 @@
+{
+  "censored": false,
+  "component_key": "transport_vacuum_filter",
+  "data_source": "synthetic_historical",
+  "event_id": "event-transport-001",
+  "label_source": "simulated_condition_event",
+  "machine_id": "synthetic-train-001",
+  "maintenance_due_at": "2026-02-10T04:00:00Z",
+  "maintenance_performed_at": "2026-02-10T08:00:00Z",
+  "scenario_id": "high-production",
+  "schema_version": "1.0.0",
+  "split": "train"
+}

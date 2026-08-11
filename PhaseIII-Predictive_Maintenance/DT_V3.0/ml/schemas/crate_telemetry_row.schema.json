@@ -1,0 +1,303 @@
+{
+  "$id": "https://mtex.local/schemas/v1/crate_telemetry_row.schema.json",
+  "description": "A row returned by the current QuantumLeap/CrateDB historical table.",
+  "properties": {
+    "ambient_humidity": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Ambient Humidity"
+    },
+    "ambient_temperature": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Ambient Temperature"
+    },
+    "copies_printed": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Copies Printed"
+    },
+    "copies_requested": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Copies Requested"
+    },
+    "entity_id": {
+      "minLength": 1,
+      "title": "Entity Id",
+      "type": "string"
+    },
+    "entity_type": {
+      "const": "Machine",
+      "title": "Entity Type",
+      "type": "string"
+    },
+    "fiware_servicepath": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Fiware Servicepath"
+    },
+    "iamalive": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Iamalive"
+    },
+    "ink_area_humidity": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Ink Area Humidity"
+    },
+    "ink_area_temperature": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Ink Area Temperature"
+    },
+    "machine_status": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Machine Status"
+    },
+    "pressure_supply_color_1": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Pressure Supply Color 1"
+    },
+    "print_bar_time_since_last_pm": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Print Bar Time Since Last Pm"
+    },
+    "print_bar_time_since_last_pm_maximum": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Print Bar Time Since Last Pm Maximum"
+    },
+    "print_bar_traveled_distance_since_last_pm": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Print Bar Traveled Distance Since Last Pm"
+    },
+    "print_bar_traveled_distance_since_last_pm_maximum": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Print Bar Traveled Distance Since Last Pm Maximum"
+    },
+    "pump_supply_color_1_work_time_since_replacement": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Pump Supply Color 1 Work Time Since Replacement"
+    },
+    "pump_supply_color_1_work_time_since_replacement_maximum": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Pump Supply Color 1 Work Time Since Replacement Maximum"
+    },
+    "speed_mms_print_bar": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Speed Mms Print Bar"
+    },
+    "speed_mms_transport": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Speed Mms Transport"
+    },
+    "speed_rpm_print_bar": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Speed Rpm Print Bar"
+    },
+    "speed_rpm_transport": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Speed Rpm Transport"
+    },
+    "time_index": {
+      "oneOf": [
+        {
+          "description": "CrateDB HTTP Unix timestamp in milliseconds",
+          "exclusiveMaximum": 100000000000000,
+          "minimum": 100000000000,
+          "type": "integer"
+        },
+        {
+          "description": "Timezone-qualified ISO-8601 timestamp",
+          "format": "date-time",
+          "type": "string"
+        }
+      ],
+      "title": "Time Index"
+    },
+    "transport_vacuum_work_time_since_last_air_filter_pm": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Transport Vacuum Work Time Since Last Air Filter Pm"
+    },
+    "transport_vacuum_work_time_since_last_air_filter_pm_maximum": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Transport Vacuum Work Time Since Last Air Filter Pm Maximum"
+    }
+  },
+  "required": [
+    "entity_id",
+    "entity_type",
+    "time_index"
+  ],
+  "title": "CrateTelemetryRow",
+  "type": "object"
+}

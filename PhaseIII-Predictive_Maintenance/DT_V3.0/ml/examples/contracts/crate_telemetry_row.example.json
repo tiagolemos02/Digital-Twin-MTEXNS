@@ -1,0 +1,13 @@
+{
+  "ambient_humidity": 47.5,
+  "ambient_temperature": 22.0,
+  "copies_printed": 10842.0,
+  "copies_requested": 11000.0,
+  "entity_id": "urn:ngsi-ld:Machine:enterprise-001",
+  "entity_type": "Machine",
+  "fiware_servicepath": "/",
+  "iamalive": "true",
+  "machine_status": 1.0,
+  "speed_mms_print_bar": 120.0,
+  "time_index": 1774742400000
+}

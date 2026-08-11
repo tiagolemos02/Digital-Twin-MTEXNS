@@ -1,0 +1,107 @@
+{
+  "$defs": {
+    "ComponentKey": {
+      "enum": [
+        "print_bar_calendar",
+        "print_bar_distance",
+        "transport_vacuum_filter",
+        "supply_pump_color_1"
+      ],
+      "title": "ComponentKey",
+      "type": "string"
+    },
+    "LabelSource": {
+      "enum": [
+        "threshold_proxy",
+        "simulated_condition_event"
+      ],
+      "title": "LabelSource",
+      "type": "string"
+    }
+  },
+  "$id": "https://mtex.local/schemas/v1/maintenance_event.schema.json",
+  "additionalProperties": false,
+  "description": "One independent maintenance due/performed lifecycle.",
+  "properties": {
+    "censored": {
+      "default": false,
+      "title": "Censored",
+      "type": "boolean"
+    },
+    "component_key": {
+      "$ref": "#/$defs/ComponentKey"
+    },
+    "data_source": {
+      "enum": [
+        "synthetic_historical",
+        "mqtt_prospective"
+      ],
+      "title": "Data Source",
+      "type": "string"
+    },
+    "event_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+      "title": "Event Id",
+      "type": "string"
+    },
+    "label_source": {
+      "$ref": "#/$defs/LabelSource"
+    },
+    "machine_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+      "title": "Machine Id",
+      "type": "string"
+    },
+    "maintenance_due_at": {
+      "format": "date-time",
+      "title": "Maintenance Due At",
+      "type": "string"
+    },
+    "maintenance_performed_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Maintenance Performed At"
+    },
+    "scenario_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+      "title": "Scenario Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "1.0.0",
+      "default": "1.0.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "split": {
+      "enum": [
+        "train",
+        "validation",
+        "test",
+        "prospective"
+      ],
+      "title": "Split",
+      "type": "string"
+    }
+  },
+  "required": [
+    "event_id",
+    "machine_id",
+    "component_key",
+    "label_source",
+    "data_source",
+    "split",
+    "scenario_id",
+    "maintenance_due_at"
+  ],
+  "title": "MaintenanceEvent",
+  "type": "object"
+}

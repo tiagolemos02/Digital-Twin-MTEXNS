@@ -1,0 +1,64 @@
+{
+  "fields": [
+    {
+      "name": "schema_version",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "event_id",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "machine_id",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "component_key",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "label_source",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "data_source",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "split",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "scenario_id",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "maintenance_due_at",
+      "nullable": false,
+      "type": "timestamp[ms, tz=UTC]"
+    },
+    {
+      "name": "maintenance_performed_at",
+      "nullable": true,
+      "type": "timestamp[ms, tz=UTC]"
+    },
+    {
+      "name": "censored",
+      "nullable": false,
+      "type": "bool"
+    }
+  ],
+  "metadata": {
+    "contract_version": "1.0.0",
+    "event_semantics": "one independent due/performed maintenance lifecycle",
+    "timezone": "UTC"
+  }
+}

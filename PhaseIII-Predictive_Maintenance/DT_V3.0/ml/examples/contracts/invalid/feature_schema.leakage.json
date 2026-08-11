@@ -1,0 +1,23 @@
+{
+  "feature_set_id": "invalid-leakage-example",
+  "features": [
+    {
+      "components": [
+        "print_bar_calendar"
+      ],
+      "dtype": "category",
+      "imputation": "none",
+      "name": "machine_id",
+      "nullable": false,
+      "position": 0,
+      "unit": "identifier",
+      "window_hours": null
+    }
+  ],
+  "horizons_hours": [
+    24,
+    168
+  ],
+  "schema_version": "1.0.0",
+  "target": "maintenanceNeedProbability"
+}

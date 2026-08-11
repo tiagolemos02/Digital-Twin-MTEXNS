@@ -1,0 +1,38 @@
+{
+  "feature_set_id": "mvp-observable-v1",
+  "features": [
+    {
+      "components": [
+        "print_bar_calendar",
+        "print_bar_distance",
+        "transport_vacuum_filter",
+        "supply_pump_color_1"
+      ],
+      "dtype": "float64",
+      "imputation": "causal_forward_fill_10m",
+      "name": "ambient_temperature_mean_1h",
+      "nullable": false,
+      "position": 0,
+      "unit": "source_native_unconfirmed",
+      "window_hours": 1
+    },
+    {
+      "components": [
+        "print_bar_distance"
+      ],
+      "dtype": "float64",
+      "imputation": "causal_forward_fill_10m_then_missing_indicator",
+      "name": "speed_mms_print_bar_mean_6h",
+      "nullable": true,
+      "position": 1,
+      "unit": "mm/s",
+      "window_hours": 6
+    }
+  ],
+  "horizons_hours": [
+    24,
+    168
+  ],
+  "schema_version": "1.0.0",
+  "target": "maintenanceNeedProbability"
+}

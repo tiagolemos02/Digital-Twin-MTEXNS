@@ -1,0 +1,237 @@
+{
+  "$defs": {
+    "ArtifactFile": {
+      "additionalProperties": false,
+      "properties": {
+        "media_type": {
+          "minLength": 1,
+          "title": "Media Type",
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "role": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+          "title": "Role",
+          "type": "string"
+        },
+        "row_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Row Count"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes",
+        "media_type",
+        "role"
+      ],
+      "title": "ArtifactFile",
+      "type": "object"
+    },
+    "ComponentKey": {
+      "enum": [
+        "print_bar_calendar",
+        "print_bar_distance",
+        "transport_vacuum_filter",
+        "supply_pump_color_1"
+      ],
+      "title": "ComponentKey",
+      "type": "string"
+    },
+    "DatasetSplitSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "event_count_by_component": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "propertyNames": {
+            "$ref": "#/$defs/ComponentKey"
+          },
+          "title": "Event Count By Component",
+          "type": "object"
+        },
+        "machine_ids": {
+          "items": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+            "type": "string"
+          },
+          "title": "Machine Ids",
+          "type": "array"
+        },
+        "row_count": {
+          "minimum": 0,
+          "title": "Row Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "machine_ids",
+        "row_count",
+        "event_count_by_component"
+      ],
+      "title": "DatasetSplitSummary",
+      "type": "object"
+    }
+  },
+  "$id": "https://mtex.local/schemas/v1/dataset_manifest.schema.json",
+  "additionalProperties": false,
+  "properties": {
+    "code_commit": {
+      "pattern": "^[0-9a-f]{7,64}$",
+      "title": "Code Commit",
+      "type": "string"
+    },
+    "config_checksums": {
+      "additionalProperties": {
+        "pattern": "^[0-9a-f]{64}$",
+        "type": "string"
+      },
+      "title": "Config Checksums",
+      "type": "object"
+    },
+    "config_version": {
+      "const": "1.0.0",
+      "default": "1.0.0",
+      "title": "Config Version",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "dataset_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+      "title": "Dataset Id",
+      "type": "string"
+    },
+    "end_time": {
+      "format": "date-time",
+      "title": "End Time",
+      "type": "string"
+    },
+    "files": {
+      "items": {
+        "$ref": "#/$defs/ArtifactFile"
+      },
+      "title": "Files",
+      "type": "array"
+    },
+    "generator_version": {
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$",
+      "title": "Generator Version",
+      "type": "string"
+    },
+    "master_seed": {
+      "minimum": 0,
+      "title": "Master Seed",
+      "type": "integer"
+    },
+    "resample_minutes": {
+      "exclusiveMinimum": 0,
+      "title": "Resample Minutes",
+      "type": "integer"
+    },
+    "scenarios": {
+      "items": {
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+        "type": "string"
+      },
+      "title": "Scenarios",
+      "type": "array"
+    },
+    "schema_hashes": {
+      "additionalProperties": {
+        "pattern": "^[0-9a-f]{64}$",
+        "type": "string"
+      },
+      "title": "Schema Hashes",
+      "type": "object"
+    },
+    "schema_version": {
+      "const": "1.0.0",
+      "default": "1.0.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "splits": {
+      "additionalProperties": {
+        "$ref": "#/$defs/DatasetSplitSummary"
+      },
+      "propertyNames": {
+        "enum": [
+          "train",
+          "validation",
+          "test"
+        ]
+      },
+      "title": "Splits",
+      "type": "object"
+    },
+    "start_time": {
+      "format": "date-time",
+      "title": "Start Time",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "draft",
+        "complete"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "units": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Units",
+      "type": "object"
+    }
+  },
+  "required": [
+    "dataset_id",
+    "generator_version",
+    "code_commit",
+    "created_at",
+    "master_seed",
+    "start_time",
+    "end_time",
+    "resample_minutes",
+    "splits",
+    "scenarios",
+    "units",
+    "schema_hashes",
+    "config_checksums",
+    "files",
+    "status"
+  ],
+  "title": "DatasetManifest",
+  "type": "object"
+}

@@ -7,7 +7,7 @@ ARG PYTHON_IMAGE=python:3.12.13-slim-bookworm@sha256:d50fb7611f86d04a3b0471b46d7
 FROM ${PYTHON_IMAGE}
 
 LABEL org.opencontainers.image.title="MTEX predictive-maintenance training environment"
-LABEL org.opencontainers.image.version="1.0.1"
+LABEL org.opencontainers.image.version="1.0.2"
 LABEL org.opencontainers.image.description="Reproducible Python environment for the MTEX predictive-maintenance MVP"
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -15,6 +15,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1 \
     MTEX_PDM_CONFIG_DIR=/opt/mtex-pdm/config \
+    MTEX_PDM_SCHEMAS_DIR=/opt/mtex-pdm/schemas \
+    MTEX_PDM_EXAMPLES_DIR=/opt/mtex-pdm/examples/contracts \
     OMP_NUM_THREADS=1 \
     OPENBLAS_NUM_THREADS=1 \
     MKL_NUM_THREADS=1 \
@@ -34,9 +36,12 @@ COPY src ./src
 RUN python -m pip install --no-deps --no-build-isolation .
 
 COPY config ./config
+COPY schemas ./schemas
+COPY examples ./examples
 COPY tests ./tests
 
 RUN mtex-pdm config-check --json \
+    && mtex-pdm contracts-check --json \
     && python -m pytest
 
 RUN groupadd --gid 10001 mtex \

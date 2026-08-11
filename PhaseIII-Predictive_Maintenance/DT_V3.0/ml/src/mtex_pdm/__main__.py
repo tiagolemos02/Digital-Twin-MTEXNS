@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -11,6 +12,7 @@ from typing import Any
 
 from mtex_pdm import __version__
 from mtex_pdm.config_validation import ConfigValidationError, validate_frozen_config
+from mtex_pdm.contracts import validate_contract_bundle, write_contract_schemas
 from mtex_pdm.environment import collect_environment_report
 
 
@@ -25,6 +27,13 @@ def _add_config_directory(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="Emit compact JSON instead of indented JSON.",
     )
+
+
+def _default_ml_directory(name: str, environment_variable: str) -> Path:
+    configured = os.environ.get(environment_variable)
+    if configured:
+        return Path(configured)
+    return Path(__file__).resolve().parents[2] / name
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -58,6 +67,49 @@ def build_parser() -> argparse.ArgumentParser:
         help="Skip the Parquet round-trip and tiny LightGBM fit.",
     )
 
+    contracts_parser = subparsers.add_parser(
+        "contracts-check",
+        help="Validate generated schemas, examples, and an optional CrateDB snapshot.",
+    )
+    contracts_parser.add_argument(
+        "--schemas-dir",
+        type=Path,
+        default=_default_ml_directory("schemas", "MTEX_PDM_SCHEMAS_DIR"),
+        help="Generated schema directory; defaults to ml/schemas.",
+    )
+    contracts_parser.add_argument(
+        "--examples-dir",
+        type=Path,
+        default=_default_ml_directory("examples/contracts", "MTEX_PDM_EXAMPLES_DIR"),
+        help="Valid contract examples; defaults to ml/examples/contracts.",
+    )
+    contracts_parser.add_argument(
+        "--crate-schema",
+        type=Path,
+        help="Optional JSON snapshot of the enterprise CrateDB table schema.",
+    )
+    contracts_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit compact JSON instead of indented JSON.",
+    )
+
+    export_parser = subparsers.add_parser(
+        "contracts-export",
+        help="Regenerate JSON and Arrow schema descriptors with checksums.",
+    )
+    export_parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=_default_ml_directory("schemas", "MTEX_PDM_SCHEMAS_DIR"),
+        help="Output directory; defaults to ml/schemas.",
+    )
+    export_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit compact JSON instead of indented JSON.",
+    )
+
     return parser
 
 
@@ -79,11 +131,25 @@ def main(argv: Sequence[str] | None = None) -> int:
         if arguments.command == "config-check":
             config_report = validate_frozen_config(arguments.config_dir)
             report = {"healthy": True, **config_report.to_dict()}
-        else:
+        elif arguments.command == "environment-check":
             report = collect_environment_report(
                 arguments.config_dir,
                 run_smoke_tests=not arguments.skip_smoke_tests,
             )
+        elif arguments.command == "contracts-check":
+            report = validate_contract_bundle(
+                schemas_dir=arguments.schemas_dir,
+                examples_dir=arguments.examples_dir,
+                crate_schema_path=arguments.crate_schema,
+            )
+        else:
+            written = write_contract_schemas(arguments.output_dir)
+            report = {
+                "healthy": True,
+                "contract_version": "1.0.0",
+                "output_directory": str(arguments.output_dir.resolve()),
+                "written": list(written),
+            }
     except (ConfigValidationError, ImportError, OSError, RuntimeError, ValueError) as error:
         print(f"mtex-pdm check failed: {error}", file=sys.stderr)
         return 1

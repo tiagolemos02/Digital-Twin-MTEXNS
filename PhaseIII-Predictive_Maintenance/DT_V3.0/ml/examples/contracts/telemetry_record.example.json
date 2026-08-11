@@ -1,0 +1,14 @@
+{
+  "ambient_humidity": 47.5,
+  "ambient_temperature": 22.0,
+  "copies_printed": 10842.0,
+  "copies_requested": 11000.0,
+  "data_source": "real_shadow",
+  "iamalive": "true",
+  "machine_id": "real-shadow-001",
+  "machine_status": 1.0,
+  "schema_version": "1.0.0",
+  "speed_mms_print_bar": 120.0,
+  "split": "shadow",
+  "time_index": "2026-03-29T00:00:00Z"
+}

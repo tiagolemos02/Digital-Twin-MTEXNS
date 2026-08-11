@@ -1,0 +1,194 @@
+{
+  "$defs": {
+    "ArtifactFile": {
+      "additionalProperties": false,
+      "properties": {
+        "media_type": {
+          "minLength": 1,
+          "title": "Media Type",
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "role": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+          "title": "Role",
+          "type": "string"
+        },
+        "row_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Row Count"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes",
+        "media_type",
+        "role"
+      ],
+      "title": "ArtifactFile",
+      "type": "object"
+    }
+  },
+  "$id": "https://mtex.local/schemas/v1/export_manifest.schema.json",
+  "additionalProperties": false,
+  "properties": {
+    "actual_end_time": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Actual End Time"
+    },
+    "actual_start_time": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Actual Start Time"
+    },
+    "artifact": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ArtifactFile"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "attributes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Attributes",
+      "type": "array"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "export_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+      "title": "Export Id",
+      "type": "string"
+    },
+    "lower_watermark": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Lower Watermark"
+    },
+    "machine_count": {
+      "minimum": 0,
+      "title": "Machine Count",
+      "type": "integer"
+    },
+    "pseudonymization_version": {
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$",
+      "title": "Pseudonymization Version",
+      "type": "string"
+    },
+    "requested_end_time": {
+      "format": "date-time",
+      "title": "Requested End Time",
+      "type": "string"
+    },
+    "requested_start_time": {
+      "format": "date-time",
+      "title": "Requested Start Time",
+      "type": "string"
+    },
+    "row_count": {
+      "minimum": 0,
+      "title": "Row Count",
+      "type": "integer"
+    },
+    "schema_version": {
+      "const": "1.0.0",
+      "default": "1.0.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "complete",
+        "partial",
+        "failed"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "upper_watermark": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Upper Watermark"
+    }
+  },
+  "required": [
+    "export_id",
+    "requested_start_time",
+    "requested_end_time",
+    "row_count",
+    "machine_count",
+    "attributes",
+    "pseudonymization_version",
+    "status",
+    "created_at"
+  ],
+  "title": "ExportManifest",
+  "type": "object"
+}

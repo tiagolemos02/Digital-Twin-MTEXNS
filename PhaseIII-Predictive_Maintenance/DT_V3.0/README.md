@@ -1,14 +1,14 @@
-# Phase III - Predictive Maintenance v1.0.1
+# Phase III - Predictive Maintenance v1.0.2
 
-**Version 1.0.1 prepares and verifies the reproducible Python 3.12 and Docker environment for the predictive-maintenance MVP while preserving the frozen v1.0.0 contract and the existing historical telemetry and secured portal foundation.**
+**Version 1.0.2 adds versioned logical and physical data contracts for CrateDB telemetry, canonical ML records, maintenance events, datasets, exports, features, and models while preserving the frozen v1.0.0 experiment and the v1.0.1 environment.**
 
-Version `1.0.1` adds the installable ML diagnostics package, exact direct and transitive dependency locks with hashes,
-configuration integrity and semantic checks, Parquet and LightGBM smoke tests, strict quality tooling, a non-root
-multi-architecture training image, conservative domestic-device resource defaults, and dedicated ML documentation.
+Version `1.0.2` adds strict Pydantic contracts, generated JSON Schemas, Arrow/Parquet schemas, valid and invalid fixtures,
+CrateDB physical-type validation, privacy-safe normalization, versioned manifests, deterministic SHA-256 integrity,
+feature/model compatibility checks, CLI validation/export commands, Docker build checks, and expanded ML documentation.
 
-Version `1.0.1` does not yet generate synthetic history, train or run MVP models, write predictions to FIWARE, change the
-portal placeholder, export enterprise data, or alter MQTT, IoT Agent, Orion, QuantumLeap, CrateDB, BFF, authentication,
-authorization, connectivity, or machine-state behavior.
+Version `1.0.2` does not yet generate synthetic history, calculate labels or features, train or run MVP models, connect to
+or export enterprise CrateDB data, write predictions to FIWARE, change the portal placeholder, or alter MQTT, IoT Agent,
+Orion, QuantumLeap, CrateDB, BFF, authentication, authorization, connectivity, or machine-state behavior.
 
 The existing Phase II security model remains the baseline: browser traffic goes through the portal, PEP Proxy, API Gateway, Keyrock, and AuthzForce policies. CrateDB and QuantumLeap are intentionally kept internal-only.
 
@@ -18,11 +18,83 @@ The existing Phase II security model remains the baseline: browser traffic goes 
 
 **Phase**: `Phase III - Predictive Maintenance`
 
-**Version**: `1.0.1`
+**Version**: `1.0.2`
 
 **Author**: Tiago Lemos
 
 **Licence**: MIT
+
+---
+
+## Scope of v1.0.2
+
+### Implemented
+
+- Independent schema contract version `1.0.0`, separate from software release `1.0.2`
+- Strict canonical telemetry records for `synthetic_historical`, `mqtt_prospective`, and `real_shadow` sources
+- CrateDB source-row validation for `TEXT`, `REAL`, and `TIMESTAMP WITH TIME ZONE` data returned by QuantumLeap history
+- Explicit acceptance of CrateDB HTTP Unix-millisecond timestamps and timezone-qualified ISO-8601 timestamps
+- UTC normalization, finite-number enforcement, source/split consistency, and pseudonymized machine identifiers
+- Safe removal of raw enterprise `entity_id` and unrelated CrateDB columns from canonical ML records
+- Independent maintenance-event records with component/label-source and causal timestamp invariants
+- Dataset manifests with machine-disjoint splits, generator/code/config/schema lineage, units, scenarios, files, and status
+- Enforcement of the frozen 100/30/30 independent-event gates when a dataset becomes `complete`
+- Blocking of complete dataset manifests while source-native physical units remain unconfirmed
+- Enterprise export manifests with requested and actual intervals, watermarks, row/machine counts, pseudonymization, status,
+  and optional artifact receipt
+- Rejection of raw enterprise identifiers from export attribute lists
+- Ordered feature schemas with types, windows, units, imputation rules, component applicability, and leakage exclusions
+- Model manifests with exact horizons/components, hyperparameters, seeds, calibration, validation thresholds, metrics,
+  lineage, status, and portable files
+- Canonical feature-schema SHA-256 and fail-closed feature/model compatibility validation
+- Relative-path, size, media-type, role, row-count, and SHA-256 descriptors for portable artifacts
+- Generated JSON Schemas for seven typed records/manifests and Arrow descriptors for telemetry and maintenance-event tables
+- Generated-schema checksum manifest, atomic schema export, and stale-schema detection
+- Valid fixtures for all contracts and deliberate invalid fixtures for leakage and timezone validation
+- `contracts-export` and `contracts-check` CLI commands, including optional schema-only CrateDB snapshot validation
+- Docker build-time contract, fixture, checksum, and regression validation
+
+### New
+
+| File | Purpose |
+|------|---------|
+| `ml/src/mtex_pdm/contracts/models.py` | Defines strict telemetry, event, artifact, dataset, export, feature, and model contracts |
+| `ml/src/mtex_pdm/contracts/tabular.py` | Defines CrateDB physical-type validation and Arrow/Parquet table schemas |
+| `ml/src/mtex_pdm/contracts/registry.py` | Generates schemas, hashes artifacts, validates bundles, and checks feature/model compatibility |
+| `ml/src/mtex_pdm/contracts/__init__.py` | Exposes the supported public contracts API |
+| `ml/schemas/*.schema.json` | Generated JSON Schemas for serialised contract records and manifests |
+| `ml/schemas/*_table.arrow.json` | Generated, language-neutral descriptions of the two Parquet table layouts |
+| `ml/schemas/checksums.sha256` | Detects stale or modified generated schema files |
+| `ml/examples/contracts/*.example.json` | Supplies privacy-safe valid examples for every contract |
+| `ml/examples/contracts/invalid/*.json` | Confirms that leakage and naive timestamps remain invalid |
+| `ml/tests/test_contracts.py` | Protects CrateDB parsing, Arrow types, manifests, integrity, leakage, compatibility, and CLI behavior |
+
+### Why
+
+- Establish the exact data interfaces before synthetic generation, enterprise export, feature engineering, and training
+- Prevent CrateDB `REAL`, text, or timestamp values from being silently misinterpreted by Python or Parquet
+- Keep raw company entity identifiers out of ML datasets, manifests, examples, logs, and the repository
+- Prevent training/test machine leakage and enforce the event-volume gates already frozen in v1.0.0
+- Make every dataset, export, feature set, and model reproducible from immutable versions and SHA-256 receipts
+- Stop a trained model from receiving missing, renamed, reordered, or semantically changed feature columns
+- Avoid unsupported claims by preserving the separation between supervised synthetic data and unlabelled real shadow data
+- Record unknown physical units honestly and block dataset freeze until the generator pilot confirms them
+- Allow a schema-only enterprise check over SSH/SFTP without exposing CrateDB publicly or copying production telemetry
+- Give the thesis concrete, inspectable evidence of data governance, provenance, leakage prevention, and reproducibility
+
+### Not Changed
+
+- No synthetic historical or MQTT generator and no added simulated machines
+- No labels, computed features, dataset generation, model training, calibration execution, SHAP, or inference jobs
+- No live CrateDB connection, enterprise data extraction, SSH/SFTP automation, or scheduled collection
+- No machine registration, `MaintenancePrediction` entities, prediction persistence, BFF endpoints, or portal panel
+- No changes to the four frozen YAML files or their v1.0.0 checksums
+- No changes to MQTT topics, IoT Agent, Orion, QuantumLeap, CrateDB tables, security, connectivity, or machine-state behavior
+- No assumption that undocumented temperature, humidity, counter, or pressure units have already been confirmed
+- No claim of validated production predictive performance
+
+Full contract, setup, CrateDB snapshot, unit-freeze, Docker, and validation instructions are in
+[`ml/README.md`](ml/README.md).
 
 ---
 

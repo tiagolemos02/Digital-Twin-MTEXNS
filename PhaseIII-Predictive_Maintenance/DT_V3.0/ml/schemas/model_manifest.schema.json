@@ -1,0 +1,216 @@
+{
+  "$defs": {
+    "ArtifactFile": {
+      "additionalProperties": false,
+      "properties": {
+        "media_type": {
+          "minLength": 1,
+          "title": "Media Type",
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "role": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+          "title": "Role",
+          "type": "string"
+        },
+        "row_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Row Count"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes",
+        "media_type",
+        "role"
+      ],
+      "title": "ArtifactFile",
+      "type": "object"
+    },
+    "ComponentKey": {
+      "enum": [
+        "print_bar_calendar",
+        "print_bar_distance",
+        "transport_vacuum_filter",
+        "supply_pump_color_1"
+      ],
+      "title": "ComponentKey",
+      "type": "string"
+    }
+  },
+  "$id": "https://mtex.local/schemas/v1/model_manifest.schema.json",
+  "additionalProperties": false,
+  "properties": {
+    "architecture": {
+      "const": "global_per_horizon",
+      "title": "Architecture",
+      "type": "string"
+    },
+    "calibration": {
+      "additionalProperties": true,
+      "title": "Calibration",
+      "type": "object"
+    },
+    "code_commit": {
+      "pattern": "^[0-9a-f]{7,64}$",
+      "title": "Code Commit",
+      "type": "string"
+    },
+    "components": {
+      "items": {
+        "$ref": "#/$defs/ComponentKey"
+      },
+      "title": "Components",
+      "type": "array"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "dataset_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+      "title": "Dataset Id",
+      "type": "string"
+    },
+    "feature_schema_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Feature Schema Hash",
+      "type": "string"
+    },
+    "files": {
+      "items": {
+        "$ref": "#/$defs/ArtifactFile"
+      },
+      "title": "Files",
+      "type": "array"
+    },
+    "generator_version": {
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$",
+      "title": "Generator Version",
+      "type": "string"
+    },
+    "horizons_hours": {
+      "maxItems": 2,
+      "minItems": 2,
+      "prefixItems": [
+        {
+          "enum": [
+            24,
+            168
+          ],
+          "type": "integer"
+        },
+        {
+          "enum": [
+            24,
+            168
+          ],
+          "type": "integer"
+        }
+      ],
+      "title": "Horizons Hours",
+      "type": "array"
+    },
+    "hyperparameters": {
+      "additionalProperties": true,
+      "title": "Hyperparameters",
+      "type": "object"
+    },
+    "metrics": {
+      "additionalProperties": {
+        "type": "number"
+      },
+      "title": "Metrics",
+      "type": "object"
+    },
+    "model_version": {
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$",
+      "title": "Model Version",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "1.0.0",
+      "default": "1.0.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "seeds": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "title": "Seeds",
+      "type": "object"
+    },
+    "status": {
+      "enum": [
+        "draft",
+        "rejected",
+        "promoted"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "thresholds": {
+      "additionalProperties": {
+        "maximum": 1.0,
+        "minimum": 0.0,
+        "type": "number"
+      },
+      "propertyNames": {
+        "enum": [
+          "24h",
+          "7d"
+        ]
+      },
+      "title": "Thresholds",
+      "type": "object"
+    }
+  },
+  "required": [
+    "model_version",
+    "dataset_id",
+    "generator_version",
+    "code_commit",
+    "created_at",
+    "architecture",
+    "horizons_hours",
+    "components",
+    "feature_schema_hash",
+    "hyperparameters",
+    "seeds",
+    "calibration",
+    "thresholds",
+    "metrics",
+    "status",
+    "files"
+  ],
+  "title": "ModelManifest",
+  "type": "object"
+}
