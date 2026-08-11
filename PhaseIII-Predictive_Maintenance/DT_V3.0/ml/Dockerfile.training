@@ -7,7 +7,7 @@ ARG PYTHON_IMAGE=python:3.12.13-slim-bookworm@sha256:d50fb7611f86d04a3b0471b46d7
 FROM ${PYTHON_IMAGE}
 
 LABEL org.opencontainers.image.title="MTEX predictive-maintenance training environment"
-LABEL org.opencontainers.image.version="1.0.3"
+LABEL org.opencontainers.image.version="1.1.1"
 LABEL org.opencontainers.image.description="Reproducible Python environment for the MTEX predictive-maintenance MVP"
 
 ENV PYTHONDONTWRITEBYTECODE=1 \

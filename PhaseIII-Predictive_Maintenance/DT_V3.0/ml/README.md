@@ -1,15 +1,18 @@
 # MTEX Predictive-Maintenance Module
 
-Version `1.0.3` turns the four frozen maintenance definitions into a typed,
-validated operational registry shared by later generator, label, feature,
-training, inference, and portal work. It preserves the reproducible environment
-from v1.0.1 and the versioned data contracts from v1.0.2.
+Version `1.1.1` adds the first executable synthetic-generator core on top of the
+frozen configuration, reproducible environment, data contracts, and typed
+four-component registry delivered by v1.0.0–v1.0.3. It can advance basic
+machine state over bounded UTC steps, emit separated in-memory telemetry and
+ground truth, and resume exactly from a serialized checkpoint.
 
-This version loads and verifies component definitions only. It does not generate
-telemetry, calculate labels or features, train models, connect to enterprise
-CrateDB, publish MQTT messages, run inference, write predictions to FIWARE, or
-change the portal. The frozen configuration and schema contracts remain at
-`1.0.0`; the software release is `1.0.3`. They evolve independently.
+This version deliberately uses a pass-through state transition: it proves the
+clock, state, seed, output, and resume boundaries without yet claiming physical
+signal behavior. It does not write Parquet, publish MQTT, implement scenarios or
+maintenance, calculate labels or features, train models, connect to enterprise
+CrateDB, write predictions to FIWARE, or change the portal. The frozen
+configuration and schema contracts remain at `1.0.0`; the software release is
+`1.1.1`. They evolve independently.
 
 ## Environment Contract
 
@@ -37,8 +40,9 @@ ml/
 ├── schemas/                 # Generated JSON/Arrow schemas and SHA-256 checksums
 ├── src/mtex_pdm/
 │   ├── component_registry.py # Typed four-component operational registry
-│   └── contracts/           # Typed records, manifests, physical schemas, registry
-├── tests/                   # Environment, configuration, contract, and component tests
+│   ├── contracts/           # Typed records, manifests, physical schemas, registry
+│   └── generator/           # Deterministic engine, state, checkpoints, output boundary
+├── tests/                   # Environment, contracts, components, and generator-core tests
 ├── .dockerignore
 ├── Dockerfile.training      # ARM64/x86-64 training and verification image
 ├── pyproject.toml           # Package metadata and tool configuration
@@ -146,9 +150,10 @@ the example feature schema against the example model manifest.
 
 ## Four-component operational registry
 
-`config/components.yaml` remains the frozen source of truth. Version 1.0.3 does
-not alter that file or its checksum; it validates the complete document and
-exposes immutable definitions through `mtex_pdm.component_registry`.
+`config/components.yaml` remains the frozen source of truth. The registry
+introduced in version 1.0.3 does not alter that file or its checksum; it validates
+the complete document and exposes immutable definitions through
+`mtex_pdm.component_registry`.
 
 | Component key | Mode | Label source | Principal observable |
 |---------------|------|--------------|----------------------|
@@ -198,6 +203,106 @@ python -m mtex_pdm components-check --json
 The current report contains four components, eight shared observables, 21 unique
 observables in total, two condition components with hidden state, one synthetic
 extension, and nine mandatory leakage exclusions.
+
+## Executable generator core v1.1.1
+
+`mtex_pdm.generator` now provides the common state engine for future offline and
+MQTT generation. The core is deliberately output-agnostic and does not sleep:
+it advances a half-open UTC interval `[start_at, end_at)` and sends each result
+immediately to a `GeneratorOutput`. Future wall-clock scheduling belongs to the
+MQTT adapter, not to this state loop.
+
+The run modes preserve the frozen names `offline`, `mqtt_continuous`, and
+`mqtt_demonstration`. Offline machines must use `synthetic_historical` with a
+train, validation, or test split; MQTT machines must use `mqtt_prospective` with
+the prospective split. The engine rejects real-shadow machines because real
+enterprise observations are ingested, not simulated.
+
+### Public core interface
+
+```python
+from datetime import UTC, datetime
+
+from mtex_pdm.contracts import DataSource, DatasetSplit
+from mtex_pdm.generator import (
+    GenerationConfig,
+    GenerationMode,
+    GeneratorEngine,
+    InMemoryOutput,
+    MachineSimulationSpec,
+)
+
+machine = MachineSimulationSpec(
+    machine_id="synthetic-train-01",
+    scenario_id="normal_operation",
+    data_source=DataSource.SYNTHETIC_HISTORICAL,
+    split=DatasetSplit.TRAIN,
+)
+config = GenerationConfig(
+    mode=GenerationMode.OFFLINE,
+    start_at=datetime(2026, 1, 1, tzinfo=UTC),
+    end_at=datetime(2026, 1, 1, 0, 15, tzinfo=UTC),
+    step_seconds=300,
+    master_seed=20260729,
+    machines=(machine,),
+)
+output = InMemoryOutput()
+summary = GeneratorEngine(config).run(output)
+
+assert summary.tick_count == 3
+assert len(output.telemetry) == 3
+assert len(output.ground_truth) == 3
+```
+
+The default transition keeps the initial state unchanged. This is intentional:
+v1.1.1 verifies the executable boundary before temperature, humidity, pressure,
+production, counters, degradation, scenarios, and maintenance rules are added.
+Those rules will implement the public `StateTransition` seam and return a new
+immutable `MachineState` for every step.
+
+### Observable and hidden state
+
+- `ObservableMachineState` accepts `iamalive` and finite numeric signals only
+  from the canonical telemetry vocabulary.
+- `HiddenMachineState` holds bounded component degradation and an optional
+  synthetic cause.
+- `TelemetrySnapshot` contains only observable state, source, split, machine,
+  and time.
+- `GroundTruthSnapshot` contains only hidden state, scenario, derived seed,
+  machine, and time.
+
+This separation occurs in the Python type boundary before feature engineering.
+`hidden_degradation`, scenario, seed, synthetic cause, and future events cannot
+be added as observable numeric signal names.
+
+### Seeds and machine isolation
+
+Each machine seed is the first 64 bits of a SHA-256 digest over the master seed,
+machine ID, and scenario ID. It does not use Python's process-randomized
+`hash()`. Every machine owns a separate `random.Random` stream; consequently,
+adding another machine does not change the existing machine's random sequence.
+The generator transition receives that RNG explicitly rather than reading
+global random state.
+
+### Checkpoint and exact resume
+
+`engine.run(output, max_ticks=N)` pauses after complete timestamps. Calling
+`engine.checkpoint()` captures the next UTC time, machine state, step indexes,
+derived seeds, and full RNG continuation. The checkpoint is a frozen Pydantic
+model and can be serialized with `model_dump_json()`.
+
+Restore it with `GeneratorEngine.from_checkpoint(...)`. Restoration fails
+closed if the SHA-256 of the complete generation configuration changes, if
+machine order or derived seeds differ, or if the continuation time is outside
+the configured interval. Tests verify that uninterrupted output is exactly
+equal to output produced before and after a serialized checkpoint.
+
+### In-memory output boundary
+
+`InMemoryOutput` stores immutable tuples for small unit tests and demonstrations.
+The engine itself emits incrementally and does not retain past snapshots. Do not
+use the memory output for the planned 12 × 180-day dataset; the later Parquet
+adapter will consume the same streaming interface and write bounded partitions.
 
 ## Local Setup
 
@@ -288,9 +393,9 @@ second dependency graph, validates the frozen configuration, and runs the test
 suite. The final process uses a non-root user.
 
 ```bash
-docker build --file Dockerfile.training --tag mtex-pdm-training:1.0.3 .
-docker run --rm --cpus 2 --memory 4g mtex-pdm-training:1.0.3
-docker run --rm mtex-pdm-training:1.0.3 components-check --json
+docker build --file Dockerfile.training --tag mtex-pdm-training:1.1.1 .
+docker run --rm --cpus 2 --memory 4g mtex-pdm-training:1.1.1
+docker run --rm mtex-pdm-training:1.1.1 components-check --json
 ```
 
 The image defaults to the full `environment-check`. Its entry point is
@@ -298,7 +403,7 @@ The image defaults to the full `environment-check`. Its entry point is
 tools:
 
 ```bash
-docker run --rm --entrypoint python mtex-pdm-training:1.0.3 -m pytest
+docker run --rm --entrypoint python mtex-pdm-training:1.1.1 -m pytest
 ```
 
 ### Device-specific builds
@@ -310,7 +415,7 @@ docker buildx build \
   --platform linux/arm64 \
   --load \
   --file Dockerfile.training \
-  --tag mtex-pdm-training:1.0.3-arm64 \
+  --tag mtex-pdm-training:1.1.1-arm64 \
   .
 ```
 
@@ -321,7 +426,7 @@ docker buildx build \
   --platform linux/amd64 \
   --load \
   --file Dockerfile.training \
-  --tag mtex-pdm-training:1.0.3-amd64 \
+  --tag mtex-pdm-training:1.1.1-amd64 \
   .
 ```
 
@@ -370,6 +475,11 @@ Available now:
 - Dataset, enterprise-export, feature, and model manifests.
 - Generated JSON Schemas and Arrow/Parquet physical schemas.
 - Valid/invalid examples, SHA-256 integrity, and compatibility checks.
+- Executable UTC generator loop for bounded offline and future MQTT run profiles.
+- Immutable basic observable and hidden machine-state types with separated streams.
+- Stable per-machine seed derivation and isolated RNG streams.
+- Incremental output protocol with a temporary in-memory implementation.
+- JSON-serializable, config-bound engine checkpoints with exact deterministic resume.
 - Parquet and LightGBM smoke tests.
 - Reproducible, non-root ARM64/x86-64 Docker build.
 - Conservative default thread use and documented launch-time device limits.
@@ -377,7 +487,11 @@ Available now:
 Intentionally deferred to the next targets:
 
 - Confirmation of source-native physical units during the generator pilot.
-- Generator, labels, feature computation, training, and inference implementations.
+- Physical observable/hidden state dynamics and calibrated ranges.
+- Scenario modifiers, maintenance lifecycle, intervention delays, and reset rules.
+- Historical Parquet generation, partitioning, manifests, checksums, and reports.
+- MQTT output and wall-clock scheduling for prospective machines.
+- Complete dataset reproducibility gate, labels, feature computation, training, and inference.
 - Machine registration and prospective MQTT scenarios.
 - Read-only enterprise CrateDB export.
 - FIWARE prediction persistence and portal integration.

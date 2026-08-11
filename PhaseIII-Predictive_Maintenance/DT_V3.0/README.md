@@ -1,13 +1,14 @@
-# Phase III - Predictive Maintenance v1.0.3
+# Phase III - Predictive Maintenance v1.1.1
 
-**Version 1.0.3 turns the four frozen maintenance definitions into one typed operational registry while preserving the v1.0.0 experimental configuration, v1.0.1 environment, and v1.0.2 data contracts.**
+**Version 1.1.1 adds the first executable synthetic-generator core: a deterministic UTC engine, basic observable/hidden state, separated in-memory streams, and exact checkpoint/resume behavior.**
 
-Version `1.0.3` adds immutable component definitions, strict semantic and telemetry-reference validation, a small lookup API,
-an operational `components-check` command, 19 focused registry tests, Docker build validation, and expanded module documentation.
+Version `1.1.1` builds on the frozen v1.0.0 experiment, v1.0.1 environment, v1.0.2 data contracts, and v1.0.3 component
+registry. It adds an output-agnostic state loop, isolated per-machine random streams, strict run/state/checkpoint types,
+a temporary memory output, and six focused deterministic engine tests.
 
-Version `1.0.3` does not yet generate synthetic history, calculate labels or features, train or run MVP models, connect to
-or export enterprise CrateDB data, write predictions to FIWARE, change the portal placeholder, or alter MQTT, IoT Agent,
-Orion, QuantumLeap, CrateDB, BFF, authentication, authorization, connectivity, or machine-state behavior.
+Version `1.1.1` can simulate bounded sequences of basic machine state, but it does not yet implement physical signal
+dynamics, scenarios, maintenance/reset behavior, Parquet datasets, MQTT publication, labels, features, training, inference,
+enterprise export, FIWARE prediction persistence, or portal changes.
 
 The existing Phase II security model remains the baseline: browser traffic goes through the portal, PEP Proxy, API Gateway, Keyrock, and AuthzForce policies. CrateDB and QuantumLeap are intentionally kept internal-only.
 
@@ -17,11 +18,71 @@ The existing Phase II security model remains the baseline: browser traffic goes 
 
 **Phase**: `Phase III - Predictive Maintenance`
 
-**Version**: `1.0.3`
+**Version**: `1.1.1`
 
 **Author**: Tiago Lemos
 
 **Licence**: MIT
+
+---
+
+## Scope of v1.1.1
+
+### Implemented
+
+- One shared `GeneratorEngine` for bounded offline, MQTT-continuous, and MQTT-demonstration run profiles
+- Half-open `[start_at, end_at)` UTC execution with a positive configurable step and no wall-clock waiting in the core
+- Incremental machine-by-machine emission, avoiding retention of a complete historical dataset inside the engine
+- Strict run validation for aware timestamps, complete steps, unique machines, synthetic source/split pairs, and mode/source compatibility
+- Stable SHA-256 per-machine seed derivation from master seed, machine ID, and scenario ID
+- One independent Python RNG stream per machine, so adding a machine does not alter another machine's history
+- Immutable basic observable state limited to canonical telemetry names and finite numeric values
+- Immutable hidden component state with bounded degradation and optional synthetic cause
+- Separate `TelemetrySnapshot` and `GroundTruthSnapshot` types with no shared observable/hidden payload field
+- Pluggable state-transition seam; v1.1.1 deliberately defaults to pass-through behavior until physical dynamics are added
+- Temporary `InMemoryOutput` implementing the same streaming boundary later used by Parquet and MQTT adapters
+- JSON-serializable checkpoints containing next UTC instant, immutable state, step indexes, RNG continuation, and exact config hash
+- Fail-closed checkpoint restoration after configuration, machine order, seed, or time-boundary changes
+- Small run summary containing ticks, machine count, stream counts, and continuation instant
+- Six focused tests covering timestamps, channel separation, deterministic repeatability, seed variation, machine isolation,
+  checkpoint equivalence, configuration validation, and leakage/non-finite signal rejection
+- Software, package, Docker-image, test, and documentation version advanced to `1.1.1`; frozen config and data-contract versions remain `1.0.0`
+
+### New
+
+| File | Purpose |
+|------|---------|
+| `ml/src/mtex_pdm/generator/models.py` | Defines run configuration, observable/hidden state, snapshots, summaries, and serializable checkpoints |
+| `ml/src/mtex_pdm/generator/engine.py` | Advances UTC time, derives isolated seeds, executes transitions, emits streams, and resumes checkpoints |
+| `ml/src/mtex_pdm/generator/output.py` | Defines the streaming output protocol and bounded in-memory implementation |
+| `ml/src/mtex_pdm/generator/__init__.py` | Exposes the supported generator-core public API |
+| `ml/tests/test_generator_engine.py` | Protects the public execution, separation, determinism, isolation, validation, and resume behavior |
+
+### Why
+
+- Establish one state engine before adding formulas, preventing offline generation and future MQTT simulation from diverging
+- Make machine histories repeatable from explicit seeds instead of global or process-randomized state
+- Keep hidden degradation structurally outside telemetry before feature engineering starts
+- Allow large future runs to stream records instead of exhausting the MacBook's 16 GB RAM
+- Make interruptions recoverable without silently changing the future synthetic sequence
+- Provide narrow, tested extension seams for state dynamics, scenarios, maintenance, Parquet, and MQTT
+- Produce auditable implementation evidence for the thesis while keeping this release limited to the first two targets of week 1, days 3–4
+
+### Not Changed
+
+- No physical evolution yet for temperature, humidity, pressure, speeds, production, counters, or degradation
+- No scenario schedules, stress modifiers, invalid/missing telemetry, or robustness behavior
+- No maintenance-due lifecycle, intervention delay, maintenance-performed event, or reset
+- No Parquet writer, dataset partitioning, generation manifest, checksum, or generation report
+- No MQTT connection, topic publication, real-time scheduler, or prospective-machine execution
+- No labels, feature computation, model training, calibration, SHAP, inference, FIWARE persistence, or portal panel
+- No enterprise CrateDB access, export, SFTP automation, or real-machine registration
+- No edits to the four frozen v1.0.0 YAML files, their checksums, or the v1.0.0 persisted data contracts
+- No changes to the ESP32 simulator, IoT Agent, Orion, QuantumLeap, CrateDB, BFF, security, connectivity, or existing machine state
+- No claim of industrial predictive performance or use of real unlabelled data as supervised evidence
+
+Full generator API, example, validation behavior, resource boundary, and deferred work are documented in
+[`ml/README.md`](ml/README.md).
 
 ---
 
