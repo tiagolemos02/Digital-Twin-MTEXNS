@@ -173,6 +173,7 @@ class GeneratorEngine:
         ground_truth_count = 0
         event_count = 0
         step_delta = timedelta(seconds=self.config.step_seconds)
+        output.bind_transition(self._transition_sha256)
 
         while self._next_time_index < self.config.end_at and (
             max_ticks is None or tick_count < max_ticks

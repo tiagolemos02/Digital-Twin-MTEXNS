@@ -7,6 +7,7 @@ import json
 import os
 import sys
 from collections.abc import Sequence
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,7 @@ from mtex_pdm.component_registry import collect_component_registry_report
 from mtex_pdm.config_validation import ConfigValidationError, validate_frozen_config
 from mtex_pdm.contracts import validate_contract_bundle, write_contract_schemas
 from mtex_pdm.environment import collect_environment_report
+from mtex_pdm.generator import generate_pilot_dataset, verify_dataset
 
 
 def _add_config_directory(parser: argparse.ArgumentParser) -> None:
@@ -111,6 +113,30 @@ def build_parser() -> argparse.ArgumentParser:
         default=_default_ml_directory("schemas", "MTEX_PDM_SCHEMAS_DIR"),
         help="Output directory; defaults to ml/schemas.",
     )
+
+    dataset_parser = subparsers.add_parser(
+        "dataset-check",
+        help="Verify dataset checksums, contracts, schemas, partitions, and counts.",
+    )
+    dataset_parser.add_argument("dataset_path", type=Path, help="Published dataset directory.")
+    dataset_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit compact JSON instead of indented JSON.",
+    )
+
+    pilot_parser = subparsers.add_parser(
+        "dataset-generate-pilot",
+        help="Generate the deterministic three-machine draft pilot dataset.",
+    )
+    pilot_parser.add_argument("--output-root", type=Path, required=True)
+    pilot_parser.add_argument("--dataset-id", required=True)
+    pilot_parser.add_argument("--code-commit", required=True)
+    pilot_parser.add_argument("--start-date", type=date.fromisoformat, required=True)
+    pilot_parser.add_argument("--days", type=int, default=7)
+    pilot_parser.add_argument("--created-at", type=datetime.fromisoformat, required=True)
+    pilot_parser.add_argument("--master-seed", type=int, default=20260729)
+    _add_config_directory(pilot_parser)
     export_parser.add_argument(
         "--json",
         action="store_true",
@@ -151,6 +177,40 @@ def main(argv: Sequence[str] | None = None) -> int:
                 examples_dir=arguments.examples_dir,
                 crate_schema_path=arguments.crate_schema,
             )
+        elif arguments.command == "dataset-check":
+            verification = verify_dataset(arguments.dataset_path)
+            report = {
+                "healthy": verification.healthy,
+                "dataset_id": verification.dataset_id,
+                "checked_file_count": verification.checked_file_count,
+                "telemetry_row_count": verification.telemetry_row_count,
+                "maintenance_event_count": verification.maintenance_event_count,
+                "errors": list(verification.errors),
+            }
+        elif arguments.command == "dataset-generate-pilot":
+            receipt = generate_pilot_dataset(
+                output_root=arguments.output_root,
+                dataset_id=arguments.dataset_id,
+                code_commit=arguments.code_commit,
+                start_date=arguments.start_date,
+                days=arguments.days,
+                created_at=arguments.created_at,
+                config_directory=(
+                    arguments.config_dir or _default_ml_directory("config", "MTEX_PDM_CONFIG_DIR")
+                ),
+                master_seed=arguments.master_seed,
+            )
+            report = {
+                "healthy": True,
+                "dataset_id": receipt.manifest.dataset_id,
+                "dataset_path": str(receipt.dataset_path.resolve()),
+                "status": receipt.manifest.status.value,
+                "machine_count": sum(
+                    len(summary.machine_ids) for summary in receipt.manifest.splits.values()
+                ),
+                "telemetry_row_count": receipt.report["telemetry_row_count"],
+                "maintenance_event_count": receipt.report["maintenance_event_count"],
+            }
         else:
             written = write_contract_schemas(arguments.output_dir)
             report = {

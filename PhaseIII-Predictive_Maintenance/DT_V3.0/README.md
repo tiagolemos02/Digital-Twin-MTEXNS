@@ -1,14 +1,13 @@
-# Phase III - Predictive Maintenance v1.1.2
+# Phase III - Predictive Maintenance v1.1.3
 
-**Version 1.1.2 turns the deterministic generator core into causal machine histories with complete observable/hidden state, scenario effects, maintenance lifecycles, resets, and auditable ground-truth events.**
+**Version 1.1.3 turns causal in-memory histories into deterministic, partitioned, verifiable Parquet dataset packages.**
 
-Version `1.1.2` builds on the v1.1.1 engine and adds one `MachineBehavior` transition for operation, environment, production,
-speeds, pressure, counters, degradation, measurement effects, maintenance due/performed, and component-local reset. Fifteen
-new transition tests protect the scientific and causal boundaries of these histories.
+Version `1.1.3` adds bounded daily/machine Parquet writing, canonical lifecycle events, effective configuration capture,
+`DatasetManifest`, SHA-256 checksums, a generation report, atomic staging/publication, an independent verifier, and commands
+to generate and verify the three-machine draft pilot. Repeat and checkpoint-resumed runs are byte-identical in the locked runtime.
 
-Version `1.1.2` generates coherent histories in memory. It does not yet freeze the pilot physical ranges, write Parquet
-datasets, publish MQTT, calculate labels/features, train models, connect to enterprise CrateDB, persist predictions in
-FIWARE, or change the portal.
+Version `1.1.3` produces audit-ready `draft` datasets. It does not yet confirm/freeze pilot units and ranges, publish MQTT,
+calculate labels/features, train models, connect to enterprise CrateDB, persist predictions in FIWARE, or change the portal.
 
 The existing Phase II security model remains the baseline: browser traffic goes through the portal, PEP Proxy, API Gateway, Keyrock, and AuthzForce policies. CrateDB and QuantumLeap are intentionally kept internal-only.
 
@@ -18,11 +17,69 @@ The existing Phase II security model remains the baseline: browser traffic goes 
 
 **Phase**: `Phase III - Predictive Maintenance`
 
-**Version**: `1.1.2`
+**Version**: `1.1.3`
 
 **Author**: Tiago Lemos
 
 **Licence**: MIT
+
+---
+
+## Scope of v1.1.3
+
+### Implemented
+
+- `ParquetDatasetOutput` implementing the existing incremental `GeneratorOutput` seam
+- One bounded in-memory telemetry buffer per machine, flushed at UTC day boundaries
+- Deterministic `telemetry/machine=<id>/date=<yyyy-mm-dd>/part-00000.parquet` partitions
+- Exact canonical telemetry/event Arrow schemas, UTC milliseconds, Zstandard level 3, fixed Parquet options, row groups, and column order
+- Missing sensors persisted as nullable values without changing the physical schema
+- Assembly of due/performed markers into one completed or censored `MaintenanceEvent` row per lifecycle
+- Explicit exclusion of hidden degradation snapshots, seeds, scenarios, causes, and future event fields from telemetry Parquet
+- Effective `generator.yaml` with complete generation config, behaviour fingerprint/parameters, and Parquet settings
+- Scenario assignments with split, source, scenario, machine, and deterministic derived seed
+- Copies and SHA-256 validation of all four frozen v1.0.0 configs
+- `DatasetManifest` populated from closed files with real artifact paths, hashes, sizes, roles, and row counts
+- `generation_report.json` with ticks, rows, machines, splits, partitions, events, censorship, missing values, duplicates, bytes, and limitations
+- Atomic staging below `.<dataset-id>.tmp`; only a completely verified package is renamed to the published dataset ID
+- Refusal to finalize incomplete runs, non-offline modes, unsafe IDs, non-minute steps, invalid timestamps, invalid commits, or existing targets
+- `verify_dataset()` cross-validating checksums, file set, contracts, Arrow schemas, UTC partitions, artifacts, machines, scenarios, seeds, configs, counts, and report
+- `dataset-check` CLI for read-only verification of a published package
+- `dataset-generate-pilot` CLI for the deterministic three-machine draft pilot
+- Ten dataset tests covering round trip, UTC rotation, events, repeated bytes, checkpoint/resume, corruption, atomic failure, provenance, CLI paths, seed variation, leakage, and machine isolation
+- Software, package, Docker-image, tests, and documentation advanced to `1.1.3`; frozen MVP and persisted-contract versions remain `1.0.0`
+
+### New
+
+| File | Purpose |
+|------|---------|
+| `ml/src/mtex_pdm/generator/dataset.py` | Writes, finalizes, describes, verifies, and publishes deterministic Parquet dataset packages |
+| `ml/tests/test_dataset_output.py` | Protects schemas, partitions, provenance, events, reproducibility, integrity, atomicity, isolation, leakage, and CLI workflows |
+
+### Why
+
+- Move from a test-only in-memory history to a portable dataset consumable by the later label/feature pipeline
+- Keep memory bounded on the Windows PC and later MacBook instead of retaining 12 × 180 days in RAM
+- Make each dataset traceable to exact code, configs, generator parameters, scenarios, seeds, schemas, and files
+- Detect corruption, truncation, wrong partitions, stale configs, false counts, or mismatched reports before training
+- Prove that interruptions and resumes do not silently alter the historical dataset
+- Prevent partial generations from appearing as valid published artefacts
+- Produce tables, counts, limitations, manifests, and integrity evidence suitable for the thesis
+- Provide one repeatable Day-5 pilot command without inventing ad-hoc scripts
+
+### Not Changed
+
+- Generated pilots remain `draft`; units/ranges are not yet industrially confirmed or frozen
+- No official pilot is committed here because the current workspace has no valid Git SHA for `code_commit`
+- No final 12-machine × 180-day dataset or enforcement of the 100/30/30 complete-dataset event gate
+- No labels, resampling, feature computation, model training, calibration, SHAP, or inference
+- No MQTT broker connection, wall-clock publisher, prospective warm-up, or FIWARE integration
+- No enterprise CrateDB access, export, SFTP automation, or real-machine registration
+- No edits to frozen v1.0.0 YAML contents/checksums or persisted data-contract schemas
+- No claim of industrial predictive performance or production validation
+
+Full dataset API, layout, reproducibility semantics, commands, verification behavior, and pilot limitations are documented in
+[`ml/README.md`](ml/README.md).
 
 ---
 

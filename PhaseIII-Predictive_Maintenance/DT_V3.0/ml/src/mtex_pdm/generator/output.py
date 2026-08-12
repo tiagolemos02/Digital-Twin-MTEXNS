@@ -20,6 +20,8 @@ class GeneratorOutput(Protocol):
 
     def emit_event(self, event: GroundTruthEvent) -> None: ...
 
+    def bind_transition(self, transition_sha256: str) -> None: ...
+
 
 class InMemoryOutput:
     """Small test/demo output; it is intentionally unsuitable for full datasets."""
@@ -49,6 +51,9 @@ class InMemoryOutput:
 
     def emit_event(self, event: GroundTruthEvent) -> None:
         self._events.append(event)
+
+    def bind_transition(self, transition_sha256: str) -> None:
+        del transition_sha256
 
 
 __all__ = ["GeneratorOutput", "InMemoryOutput"]

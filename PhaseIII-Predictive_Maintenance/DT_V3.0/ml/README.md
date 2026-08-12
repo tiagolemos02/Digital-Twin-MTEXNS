@@ -1,18 +1,18 @@
 # MTEX Predictive-Maintenance Module
 
-Version `1.1.2` adds causal pilot behaviour for the four maintenance components
-on top of the deterministic generator core introduced in v1.1.1. A machine now
-produces coherent observable signals, component-specific hidden degradation,
-scenario effects, maintenance due/performed events, and intervention resets.
-The in-memory output keeps telemetry, hidden snapshots, and lifecycle events in
-separate streams, and checkpoints resume the complete behaviour exactly.
+Version `1.1.3` materializes the causal generator as deterministic, partitioned
+Parquet datasets. It writes daily telemetry per machine, canonical maintenance
+events, effective configuration, a validated `DatasetManifest`, SHA-256
+checksums, and a generation report through an atomic staging boundary. Repeated
+and checkpoint-resumed runs produce byte-identical packages in the locked local
+runtime, and `dataset-check` independently verifies the published result.
 
-This remains a pilot implementation: source-native physical units and ranges
-must be confirmed before the historical dataset is frozen. It does not yet
-write Parquet, publish MQTT, calculate labels or features, train models, connect
-to enterprise CrateDB, write predictions to FIWARE, or change the portal. The
-frozen configuration and schema contracts remain at `1.0.0`; the software
-release is `1.1.2`. They evolve independently.
+The first generated pilot remains a `draft`: source-native physical units and
+ranges still require confirmation, and a short pilot does not assert the final
+100/30/30 independent-event gate. This release does not yet publish MQTT,
+calculate labels or features, train models, connect to enterprise CrateDB, write
+predictions to FIWARE, or change the portal. Frozen configuration and schema
+contracts remain at `1.0.0`; the software release is `1.1.3`.
 
 ## Environment Contract
 
@@ -41,8 +41,8 @@ ml/
 ├── src/mtex_pdm/
 │   ├── component_registry.py # Typed four-component operational registry
 │   ├── contracts/           # Typed records, manifests, physical schemas, registry
-│   └── generator/           # Engine, causal behaviour, events, checkpoints, output boundary
-├── tests/                   # Environment, contracts, components, generator, and behaviour tests
+│   └── generator/           # Engine, behaviour, Parquet datasets, events, checkpoints
+├── tests/                   # Contracts, generator, behaviour, and dataset reproducibility
 ├── .dockerignore
 ├── Dockerfile.training      # ARM64/x86-64 training and verification image
 ├── pyproject.toml           # Package metadata and tool configuration
@@ -381,6 +381,94 @@ separation, telemetry anomalies, scenario reservations, threshold and condition
 events, delayed interventions, component-local resets, completed/censored event
 assembly, and exact checkpoint resume.
 
+## Reproducible Parquet datasets v1.1.3
+
+`ParquetDatasetOutput` implements the same streaming `GeneratorOutput` boundary
+as `InMemoryOutput`, but retains at most one UTC day per machine. It validates
+each snapshot as a canonical `TelemetryRecord`, rotates a partition when the day
+changes, and writes the exact `TELEMETRY_ARROW_SCHEMA` with Zstandard level 3,
+fixed Parquet options, deterministic paths, one writer thread, and a bounded row
+group. Missing sensors become null values in a stable schema.
+
+Telemetry is stored as:
+
+```text
+telemetry/machine=<id>/date=<yyyy-mm-dd>/part-00000.parquet
+```
+
+Runtime due/performed markers are assembled at finalization into one canonical
+`MaintenanceEvent` per independent lifecycle and written to
+`ground_truth/events.parquet`. Hidden degradation snapshots are counted for
+audit but deliberately excluded from the training telemetry package.
+
+### Atomic package finalization
+
+Generation starts below `.<dataset-id>.tmp`. `finalize()` refuses an incomplete
+engine run, closes telemetry, assembles events, copies the four verified frozen
+configs, and records effective generation/behaviour/Parquet parameters plus
+scenario assignments and derived machine seeds. It then writes:
+
+```text
+<dataset-id>/
+├── telemetry/machine=<id>/date=<yyyy-mm-dd>/part-00000.parquet
+├── ground_truth/events.parquet
+├── configs/{generator.yaml,scenario_assignments.json,<four frozen YAMLs>}
+├── manifests/{dataset_manifest.json,checksums.sha256}
+└── reports/generation_report.json
+```
+
+The `DatasetManifest` is built from files actually closed on disk. Every
+`ArtifactFile` records a safe relative path, SHA-256, size, media type, role,
+and, for Parquet, row count. The report records tick/row/event/partition counts,
+rows per machine and split, events per component, censored events, missing
+values, duplicate timestamps, bytes, and the required synthetic-data
+limitations. Only after the whole staging package passes `verify_dataset()` is
+the directory atomically renamed to its published name.
+
+### Verification and reproducibility
+
+`verify_dataset()` and the `dataset-check` command fail closed on:
+
+- missing, unexpected, unsafe, duplicate, changed, or corrupt checksum entries;
+- invalid manifest, telemetry, event, scenario-assignment, or report contracts;
+- Arrow schema or UTC partition mismatches;
+- inconsistent artifact sizes or row counts;
+- disagreement between Parquet, manifest, report, scenarios, machines, events,
+  schema hashes, or copied frozen-config checksums;
+- duplicate maintenance lifecycle IDs.
+
+Tests prove exact repeat-run equality, continuous versus checkpoint-resumed
+equality, Parquet round trips across UTC day boundaries, component event counts,
+corruption detection, failure atomicity, seed variation, machine isolation,
+physical-schema stability, leakage exclusions, CLI generation, and CLI
+verification. Byte equality is expected in the locked runtime; cross-device
+validation should also compare semantic content because codec implementations
+may evolve independently of the records.
+
+### Generate and verify the draft pilot
+
+The pilot command creates three historical machines—one per split—at five-minute
+resolution. `--code-commit` is mandatory and must be the real Git SHA associated
+with the running code.
+
+```bash
+python -m mtex_pdm dataset-generate-pilot \
+  --output-root data/pilots \
+  --dataset-id synthetic-pilot-v1 \
+  --code-commit <real-git-sha> \
+  --start-date 2026-01-01 \
+  --days 7 \
+  --created-at 2026-08-12T12:00:00Z
+
+python -m mtex_pdm dataset-check data/pilots/synthetic-pilot-v1
+```
+
+The command always creates a `draft`. The existing manifest contract blocks a
+`complete` dataset while units contain `source_native_unconfirmed` or the
+100/30/30 event gate is not reached. Do not invent a commit or reduce the gates
+after observing results. The official Day-5 pilot must run from a valid Git
+clone; development fixtures may use an explicit test SHA only inside tests.
+
 ## Local Setup
 
 Run the following commands from `DT_V3.0/ml`.
@@ -442,6 +530,14 @@ python -m mtex_pdm contracts-check --crate-schema path/to/cratedb-schema.json
 # Intentional regeneration after changing Python contract sources
 python -m mtex_pdm contracts-export
 
+# Generate the three-machine draft pilot (requires a real Git SHA)
+python -m mtex_pdm dataset-generate-pilot --output-root data/pilots \
+  --dataset-id synthetic-pilot-v1 --code-commit <real-git-sha> \
+  --start-date 2026-01-01 --days 7 --created-at 2026-08-12T12:00:00Z
+
+# Verify checksums, schemas, partitions, counts, manifest, configs, and report
+python -m mtex_pdm dataset-check data/pilots/synthetic-pilot-v1
+
 # Full machine/environment report
 python -m mtex_pdm environment-check
 
@@ -470,9 +566,9 @@ second dependency graph, validates the frozen configuration, and runs the test
 suite. The final process uses a non-root user.
 
 ```bash
-docker build --file Dockerfile.training --tag mtex-pdm-training:1.1.2 .
-docker run --rm --cpus 2 --memory 4g mtex-pdm-training:1.1.2
-docker run --rm mtex-pdm-training:1.1.2 components-check --json
+docker build --file Dockerfile.training --tag mtex-pdm-training:1.1.3 .
+docker run --rm --cpus 2 --memory 4g mtex-pdm-training:1.1.3
+docker run --rm mtex-pdm-training:1.1.3 components-check --json
 ```
 
 The image defaults to the full `environment-check`. Its entry point is
@@ -480,7 +576,7 @@ The image defaults to the full `environment-check`. Its entry point is
 tools:
 
 ```bash
-docker run --rm --entrypoint python mtex-pdm-training:1.1.2 -m pytest
+docker run --rm --entrypoint python mtex-pdm-training:1.1.3 -m pytest
 ```
 
 ### Device-specific builds
@@ -492,7 +588,7 @@ docker buildx build \
   --platform linux/arm64 \
   --load \
   --file Dockerfile.training \
-  --tag mtex-pdm-training:1.1.2-arm64 \
+  --tag mtex-pdm-training:1.1.3-arm64 \
   .
 ```
 
@@ -503,7 +599,7 @@ docker buildx build \
   --platform linux/amd64 \
   --load \
   --file Dockerfile.training \
-  --tag mtex-pdm-training:1.1.2-amd64 \
+  --tag mtex-pdm-training:1.1.3-amd64 \
   .
 ```
 
@@ -563,6 +659,11 @@ Available now:
   and component-local maintenance resets.
 - Append-only runtime markers and strict completed/censored event assembly.
 - JSON-serializable, config- and behaviour-bound checkpoints with exact resume.
+- Bounded daily/machine Parquet output with fixed schema and Zstandard options.
+- Atomic draft dataset publication with effective configs and scenario assignments.
+- Validated dataset manifest, SHA-256 file integrity, and generation report.
+- Independent dataset verifier and three-machine pilot-generation commands.
+- Byte-identical repeat/checkpoint-resume tests plus semantic integrity gates.
 - Parquet and LightGBM smoke tests.
 - Reproducible, non-root ARM64/x86-64 Docker build.
 - Conservative default thread use and documented launch-time device limits.
@@ -571,7 +672,8 @@ Intentionally deferred to the next targets:
 
 - Confirmation of source-native physical units during the generator pilot.
 - Review and freeze of pilot physical ranges and degradation rates before dataset generation.
-- Historical Parquet generation, partitioning, manifests, checksums, and reports.
+- Official Day-5 pilot from a valid Git clone and subsequent profiling/event review.
+- Full 12-machine × 180-day dataset after unit/parameter review and freeze.
 - MQTT output and wall-clock scheduling for prospective machines.
 - Complete dataset/event-volume reproducibility gate, labels, feature computation,
   training, and inference.

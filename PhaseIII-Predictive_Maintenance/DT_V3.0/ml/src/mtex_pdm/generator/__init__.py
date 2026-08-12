@@ -6,6 +6,14 @@ from mtex_pdm.generator.behavior import (
     ScenarioProfile,
     supported_scenario_ids,
 )
+from mtex_pdm.generator.dataset import (
+    DatasetGenerationReceipt,
+    DatasetVerificationReport,
+    ParquetDatasetOutput,
+    generate_pilot_dataset,
+    generate_synthetic_dataset,
+    verify_dataset,
+)
 from mtex_pdm.generator.engine import (
     GeneratorEngine,
     StateTransition,
@@ -40,6 +48,8 @@ from mtex_pdm.generator.output import GeneratorOutput, InMemoryOutput
 __all__ = [
     "BehaviorParameters",
     "ComponentHiddenState",
+    "DatasetGenerationReceipt",
+    "DatasetVerificationReport",
     "GenerationConfig",
     "GenerationMode",
     "GenerationSummary",
@@ -59,6 +69,7 @@ __all__ = [
     "MaintenanceSeverity",
     "NumericSignal",
     "ObservableMachineState",
+    "ParquetDatasetOutput",
     "ScenarioProfile",
     "StateTransition",
     "StepContext",
@@ -67,6 +78,9 @@ __all__ = [
     "TelemetrySnapshot",
     "assemble_maintenance_events",
     "derive_machine_seed",
+    "generate_pilot_dataset",
+    "generate_synthetic_dataset",
     "passthrough_transition",
     "supported_scenario_ids",
+    "verify_dataset",
 ]
