@@ -57,7 +57,7 @@ class FrozenConfigTests(unittest.TestCase):
 
 class EnvironmentTests(unittest.TestCase):
     def test_package_version_matches_release(self) -> None:
-        self.assertEqual(__version__, "1.1.3")
+        self.assertEqual(__version__, "1.1.4")
 
     def test_parquet_round_trip(self) -> None:
         result = parquet_smoke_test()

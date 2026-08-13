@@ -1,13 +1,15 @@
-# Phase III - Predictive Maintenance v1.1.3
+# Phase III - Predictive Maintenance v1.1.4
 
-**Version 1.1.3 turns causal in-memory histories into deterministic, partitioned, verifiable Parquet dataset packages.**
+**Version 1.1.4 turns a draft synthetic dataset into an auditable pilot experiment with profiling, event prevalence, and an explicit scale decision.**
 
-Version `1.1.3` adds bounded daily/machine Parquet writing, canonical lifecycle events, effective configuration capture,
-`DatasetManifest`, SHA-256 checksums, a generation report, atomic staging/publication, an independent verifier, and commands
-to generate and verify the three-machine draft pilot. Repeat and checkpoint-resumed runs are byte-identical in the locked runtime.
+Version `1.1.4` adds configurable pilot size, structural and numerical profiling, independent-event analysis, preliminary 24-hour/7-day
+window prevalence, a conservative machine/day recommendation, immutable analysis artefacts, SHA-256 verification, and a single command
+for generation through decision. One anonymized real-machine snapshot confirms both temperature fields in degrees Celsius and supports
+range comparison; every other source-native unit remains explicitly unconfirmed.
 
-Version `1.1.3` produces audit-ready `draft` datasets. It does not yet confirm/freeze pilot units and ranges, publish MQTT,
-calculate labels/features, train models, connect to enterprise CrateDB, persist predictions in FIWARE, or change the portal.
+Version `1.1.4` does not automatically freeze or edit the v1.0.0 MVP configuration. It does not treat one real observation as a population,
+does not claim industrial predictive performance, and does not yet implement final labels/features, models, MQTT, enterprise export,
+FIWARE prediction persistence, or portal changes.
 
 The existing Phase II security model remains the baseline: browser traffic goes through the portal, PEP Proxy, API Gateway, Keyrock, and AuthzForce policies. CrateDB and QuantumLeap are intentionally kept internal-only.
 
@@ -17,11 +19,63 @@ The existing Phase II security model remains the baseline: browser traffic goes 
 
 **Phase**: `Phase III - Predictive Maintenance`
 
-**Version**: `1.1.3`
+**Version**: `1.1.4`
 
 **Author**: Tiago Lemos
 
 **Licence**: MIT
+
+---
+
+## Scope of v1.1.4
+
+### Implemented
+
+- Configurable pilot generation through explicit train, validation, and test machine counts while preserving split-disjoint IDs and seeds
+- Read-only profiling of an independently verified Parquet dataset, including rows, partitions, machines, splits, scenarios, cadence, gaps, and duplicate timestamps
+- Numerical distributions for every canonical observable globally, by machine, and by scenario, with counts, nulls, non-finite values, quantiles, range, mean, and population deviation
+- Validation and safe flattening of source-native `{value, maximum}` counter objects without inventing units or importing unrelated attributes
+- Explicit confirmation of `ambient_temperature` and `ink_area_temperature` as degrees Celsius; regenerated Arrow schema and checksums retain contract version `1.0.0`
+- Use of the supplied maximum values as evidence that the existing calendar (`90`), distance (`250`), vacuum-work (`144000`), and supply-pump-work (`2880000`) pilot maxima match the observed source values
+- Independent maintenance-event counts by component, split, and scenario, plus censorship, intervention delay, and event density per machine-day
+- Preliminary 24-hour and 168-hour maintenance-window prevalence with future-window censorship and exclusion of already-overdue intervals
+- Conservative scale decision using the frozen 7/2/3-machine, 180-day, and 100/30/30 independent-event targets; zero events are treated as inconclusive
+- Human-readable Markdown report plus deterministic JSON profile, event, and scale reports, an analysis manifest, and SHA-256 checksums
+- Independent analysis verifier checking files, hashes, report dataset IDs, artefact metadata, and optional linkage to the source dataset manifest
+- Atomic analysis publication and refusal to overwrite existing dataset or analysis destinations
+- `pilot-analyze`, `pilot-analysis-check`, and end-to-end `pilot-run` commands; the existing pilot generator accepts explicit split sizes
+- Eight focused tests covering the real reference/unit boundary, default maxima, deterministic profiling, source immutability, assignment/event identity, corruption refusal, analysis tampering, scale logic, and end-to-end CLI verification
+- Software, package, Docker image, tests, and documentation advanced to `1.1.4`; frozen MVP and persisted-contract versions remain `1.0.0`
+
+### New
+
+| File | Purpose |
+|------|---------|
+| `ml/src/mtex_pdm/pilot_analysis.py` | Profiles verified pilots, validates event prevalence, recommends scale, publishes reports, and verifies their integrity/lineage |
+| `ml/tests/test_pilot_analysis.py` | Protects reference parsing, deterministic reports, dataset immutability, corruption handling, scale decisions, and CLI workflows |
+| `ml/examples/pilot/real_machine_snapshot.example.json` | Minimal anonymized real observation used only for unit/range evidence during the draft pilot |
+
+### Why
+
+- Decide whether to increase machines, simulated history, both, or review parameters before spending MacBook time on the 12-machine × 180-day candidate
+- Replace visual spot-checks with reproducible profiling and independent-event evidence suitable for implementation records and the thesis
+- Prevent repeated positive time rows from being mistaken for independent maintenance events
+- Detect missing/corrupt files, cadence problems, implausible synthetic ranges, inadequate component coverage, and report tampering before labels or training
+- Use the company's partial answer immediately while keeping unknown units scientifically explicit during the remaining confirmation period
+- Keep pilot analysis separate from source data and require human approval for every configuration freeze or scale change
+- Allow the code to be developed and tested on Windows, then run unchanged on the ARM64 MacBook using portable Parquet/JSON artefacts
+
+### Not Changed
+
+- The v1.0.0 YAML configuration remains frozen and was not edited automatically by the scale recommendation
+- Humidity, pressure, speeds, maintenance counters, and their maxima remain `source_native_unconfirmed` until the company confirms their units
+- A single real-machine snapshot is reference evidence only; it is not used to fit distributions or claim representative production ranges
+- Analysis remains `draft`; final Day-6/7 label quality rules, features, training, calibration, SHAP, and inference are not included
+- No official large pilot is committed: it must be run after this change has a real Git SHA, reviewed on Windows, and then scaled on the MacBook
+- No MQTT publisher, enterprise CrateDB/SFTP automation, FIWARE persistence, portal change, or industrial predictive-performance claim
+
+Full pilot commands, report semantics, decision rules, unit boundary, and Windows-to-MacBook workflow are documented in
+[`ml/README.md`](ml/README.md).
 
 ---
 

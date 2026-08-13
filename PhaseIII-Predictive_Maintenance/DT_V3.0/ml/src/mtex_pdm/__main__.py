@@ -16,7 +16,8 @@ from mtex_pdm.component_registry import collect_component_registry_report
 from mtex_pdm.config_validation import ConfigValidationError, validate_frozen_config
 from mtex_pdm.contracts import validate_contract_bundle, write_contract_schemas
 from mtex_pdm.environment import collect_environment_report
-from mtex_pdm.generator import generate_pilot_dataset, verify_dataset
+from mtex_pdm.generator import DatasetGenerationReceipt, generate_pilot_dataset, verify_dataset
+from mtex_pdm.pilot_analysis import analyze_pilot_dataset, verify_pilot_analysis
 
 
 def _add_config_directory(parser: argparse.ArgumentParser) -> None:
@@ -37,6 +38,19 @@ def _default_ml_directory(name: str, environment_variable: str) -> Path:
     if configured:
         return Path(configured)
     return Path(__file__).resolve().parents[2] / name
+
+
+def _add_pilot_generation_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--output-root", type=Path, required=True)
+    parser.add_argument("--dataset-id", required=True)
+    parser.add_argument("--code-commit", required=True)
+    parser.add_argument("--start-date", type=date.fromisoformat, required=True)
+    parser.add_argument("--days", type=int, default=7)
+    parser.add_argument("--created-at", type=datetime.fromisoformat, required=True)
+    parser.add_argument("--master-seed", type=int, default=20260729)
+    parser.add_argument("--train-machines", type=int, default=1)
+    parser.add_argument("--validation-machines", type=int, default=1)
+    parser.add_argument("--test-machines", type=int, default=1)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -127,16 +141,36 @@ def build_parser() -> argparse.ArgumentParser:
 
     pilot_parser = subparsers.add_parser(
         "dataset-generate-pilot",
-        help="Generate the deterministic three-machine draft pilot dataset.",
+        help="Generate a deterministic configurable draft pilot dataset.",
     )
-    pilot_parser.add_argument("--output-root", type=Path, required=True)
-    pilot_parser.add_argument("--dataset-id", required=True)
-    pilot_parser.add_argument("--code-commit", required=True)
-    pilot_parser.add_argument("--start-date", type=date.fromisoformat, required=True)
-    pilot_parser.add_argument("--days", type=int, default=7)
-    pilot_parser.add_argument("--created-at", type=datetime.fromisoformat, required=True)
-    pilot_parser.add_argument("--master-seed", type=int, default=20260729)
+    _add_pilot_generation_arguments(pilot_parser)
     _add_config_directory(pilot_parser)
+
+    analysis_parser = subparsers.add_parser(
+        "pilot-analyze",
+        help="Profile a verified draft dataset and recommend scale without modifying it.",
+    )
+    analysis_parser.add_argument("dataset_path", type=Path)
+    analysis_parser.add_argument("--analysis-root", type=Path, required=True)
+    analysis_parser.add_argument("--reference-snapshot", type=Path)
+    analysis_parser.add_argument("--json", action="store_true")
+
+    analysis_check_parser = subparsers.add_parser(
+        "pilot-analysis-check",
+        help="Verify analysis checksums, report agreement, and optional dataset lineage.",
+    )
+    analysis_check_parser.add_argument("analysis_path", type=Path)
+    analysis_check_parser.add_argument("--dataset-path", type=Path)
+    analysis_check_parser.add_argument("--json", action="store_true")
+
+    run_parser = subparsers.add_parser(
+        "pilot-run",
+        help="Generate, verify, profile, and assess one draft pilot experiment.",
+    )
+    _add_pilot_generation_arguments(run_parser)
+    run_parser.add_argument("--analysis-root", type=Path, required=True)
+    run_parser.add_argument("--reference-snapshot", type=Path)
+    _add_config_directory(run_parser)
     export_parser.add_argument(
         "--json",
         action="store_true",
@@ -151,6 +185,24 @@ def _render(report: dict[str, Any], compact: bool) -> str:
         report,
         indent=None if compact else 2,
         sort_keys=True,
+    )
+
+
+def _generate_pilot_from_arguments(arguments: argparse.Namespace) -> DatasetGenerationReceipt:
+    return generate_pilot_dataset(
+        output_root=arguments.output_root,
+        dataset_id=arguments.dataset_id,
+        code_commit=arguments.code_commit,
+        start_date=arguments.start_date,
+        days=arguments.days,
+        created_at=arguments.created_at,
+        config_directory=(
+            arguments.config_dir or _default_ml_directory("config", "MTEX_PDM_CONFIG_DIR")
+        ),
+        master_seed=arguments.master_seed,
+        train_machine_count=arguments.train_machines,
+        validation_machine_count=arguments.validation_machines,
+        test_machine_count=arguments.test_machines,
     )
 
 
@@ -178,28 +230,17 @@ def main(argv: Sequence[str] | None = None) -> int:
                 crate_schema_path=arguments.crate_schema,
             )
         elif arguments.command == "dataset-check":
-            verification = verify_dataset(arguments.dataset_path)
+            dataset_verification = verify_dataset(arguments.dataset_path)
             report = {
-                "healthy": verification.healthy,
-                "dataset_id": verification.dataset_id,
-                "checked_file_count": verification.checked_file_count,
-                "telemetry_row_count": verification.telemetry_row_count,
-                "maintenance_event_count": verification.maintenance_event_count,
-                "errors": list(verification.errors),
+                "healthy": dataset_verification.healthy,
+                "dataset_id": dataset_verification.dataset_id,
+                "checked_file_count": dataset_verification.checked_file_count,
+                "telemetry_row_count": dataset_verification.telemetry_row_count,
+                "maintenance_event_count": dataset_verification.maintenance_event_count,
+                "errors": list(dataset_verification.errors),
             }
         elif arguments.command == "dataset-generate-pilot":
-            receipt = generate_pilot_dataset(
-                output_root=arguments.output_root,
-                dataset_id=arguments.dataset_id,
-                code_commit=arguments.code_commit,
-                start_date=arguments.start_date,
-                days=arguments.days,
-                created_at=arguments.created_at,
-                config_directory=(
-                    arguments.config_dir or _default_ml_directory("config", "MTEX_PDM_CONFIG_DIR")
-                ),
-                master_seed=arguments.master_seed,
-            )
+            receipt = _generate_pilot_from_arguments(arguments)
             report = {
                 "healthy": True,
                 "dataset_id": receipt.manifest.dataset_id,
@@ -210,6 +251,51 @@ def main(argv: Sequence[str] | None = None) -> int:
                 ),
                 "telemetry_row_count": receipt.report["telemetry_row_count"],
                 "maintenance_event_count": receipt.report["maintenance_event_count"],
+            }
+        elif arguments.command == "pilot-analyze":
+            analysis = analyze_pilot_dataset(
+                dataset_path=arguments.dataset_path,
+                output_root=(arguments.analysis_root / f"{arguments.dataset_path.name}-analysis"),
+                reference_path=arguments.reference_snapshot,
+            )
+            report = {
+                "healthy": analysis.healthy,
+                "dataset_id": analysis.profile["dataset_id"],
+                "analysis_path": str(analysis.analysis_path.resolve()),
+                "telemetry_row_count": analysis.profile["telemetry_row_count"],
+                "maintenance_event_count": analysis.events["independent_event_count"],
+                "scale_decision": analysis.scale_decision["decision"],
+                "freeze_ready": analysis.scale_decision["freeze_ready"],
+            }
+        elif arguments.command == "pilot-analysis-check":
+            analysis_verification = verify_pilot_analysis(
+                arguments.analysis_path,
+                dataset_path=arguments.dataset_path,
+            )
+            report = {
+                "healthy": analysis_verification.healthy,
+                "dataset_id": analysis_verification.dataset_id,
+                "checked_file_count": analysis_verification.checked_file_count,
+                "errors": list(analysis_verification.errors),
+            }
+        elif arguments.command == "pilot-run":
+            receipt = _generate_pilot_from_arguments(arguments)
+            analysis = analyze_pilot_dataset(
+                dataset_path=receipt.dataset_path,
+                output_root=arguments.analysis_root / f"{arguments.dataset_id}-analysis",
+                reference_path=arguments.reference_snapshot,
+            )
+            report = {
+                "healthy": analysis.healthy,
+                "dataset_id": receipt.manifest.dataset_id,
+                "dataset_path": str(receipt.dataset_path.resolve()),
+                "analysis_path": str(analysis.analysis_path.resolve()),
+                "status": receipt.manifest.status.value,
+                "machine_count": analysis.profile["machine_count"],
+                "telemetry_row_count": analysis.profile["telemetry_row_count"],
+                "maintenance_event_count": analysis.events["independent_event_count"],
+                "scale_decision": analysis.scale_decision["decision"],
+                "freeze_ready": analysis.scale_decision["freeze_ready"],
             }
         else:
             written = write_contract_schemas(arguments.output_dir)

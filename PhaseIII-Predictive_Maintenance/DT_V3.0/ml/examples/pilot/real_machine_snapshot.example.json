@@ -1,0 +1,35 @@
+{
+  "confirmed_units": {
+    "ambient_temperature": "degC",
+    "ink_area_temperature": "degC"
+  },
+  "observations": {
+    "ambient_temperature": 26.6,
+    "copies_printed": 0,
+    "copies_requested": 0,
+    "ink_area_humidity": 57.5,
+    "ink_area_temperature": 26.6,
+    "pressure_wiper_suction_head_4": -0.2,
+    "print_bar_time_since_last_pm": {
+      "maximum": "90",
+      "value": "42"
+    },
+    "print_bar_traveled_distance_since_last_pm": {
+      "maximum": "250",
+      "value": "10"
+    },
+    "pump_supply_color_1_work_time_since_replacement": {
+      "maximum": "2880000",
+      "value": "112"
+    },
+    "speed_mms_print_bar": 0.0,
+    "speed_mms_transport": 0.0,
+    "speed_rpm_print_bar": 0.0,
+    "speed_rpm_transport": 0.0,
+    "transport_vacuum_work_time_since_last_air_filter_pm": {
+      "maximum": "144000",
+      "value": "1833"
+    }
+  },
+  "reference_id": "anonymized-real-machine-snapshot-2026-08"
+}

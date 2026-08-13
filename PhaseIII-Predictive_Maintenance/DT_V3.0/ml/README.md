@@ -1,18 +1,18 @@
 # MTEX Predictive-Maintenance Module
 
-Version `1.1.3` materializes the causal generator as deterministic, partitioned
-Parquet datasets. It writes daily telemetry per machine, canonical maintenance
-events, effective configuration, a validated `DatasetManifest`, SHA-256
-checksums, and a generation report through an atomic staging boundary. Repeated
-and checkpoint-resumed runs produce byte-identical packages in the locked local
-runtime, and `dataset-check` independently verifies the published result.
+Version `1.1.4` generates configurable draft pilots and turns their verified
+Parquet packages into deterministic profiling, independent-event prevalence,
+and conservative scale-decision artefacts. `pilot-run` covers generation through
+decision; `pilot-analysis-check` independently verifies report integrity and
+source-dataset lineage.
 
-The first generated pilot remains a `draft`: source-native physical units and
-ranges still require confirmation, and a short pilot does not assert the final
-100/30/30 independent-event gate. This release does not yet publish MQTT,
-calculate labels or features, train models, connect to enterprise CrateDB, write
-predictions to FIWARE, or change the portal. Frozen configuration and schema
-contracts remain at `1.0.0`; the software release is `1.1.3`.
+One anonymized real-machine observation confirms both temperature attributes in
+degrees Celsius and supports range comparisons. It is not a representative
+production sample. All other source-native units remain unconfirmed and block
+the final dataset freeze. This release does not yet publish MQTT, calculate final
+labels or features, train models, connect to enterprise CrateDB, write predictions
+to FIWARE, or change the portal. Frozen configuration and persisted contract
+versions remain at `1.0.0`; the software release is `1.1.4`.
 
 ## Environment Contract
 
@@ -37,12 +37,14 @@ Python 3.12.
 ml/
 ├── config/                  # Frozen v1.0.0 MVP contract and checksums
 ├── examples/contracts/      # Valid and deliberately invalid contract fixtures
+├── examples/pilot/          # Minimal anonymized real reference observation
 ├── schemas/                 # Generated JSON/Arrow schemas and SHA-256 checksums
 ├── src/mtex_pdm/
 │   ├── component_registry.py # Typed four-component operational registry
 │   ├── contracts/           # Typed records, manifests, physical schemas, registry
-│   └── generator/           # Engine, behaviour, Parquet datasets, events, checkpoints
-├── tests/                   # Contracts, generator, behaviour, and dataset reproducibility
+│   ├── generator/           # Engine, behaviour, Parquet datasets, events, checkpoints
+│   └── pilot_analysis.py    # Profiling, event prevalence, scale decision, verification
+├── tests/                   # Contracts, generator, dataset, and pilot-analysis tests
 ├── .dockerignore
 ├── Dockerfile.training      # ARM64/x86-64 training and verification image
 ├── pyproject.toml           # Package metadata and tool configuration
@@ -119,13 +121,26 @@ belongs in the repository. The supplied snapshot is a schema-only example.
 
 ### Units and dataset freeze
 
-Attribute names that encode their units use `mm/s` and `rpm`, and all timestamps
-use UTC. The existing simulator and portal mapping do not document authoritative
-physical units for temperatures, humidity, counters, or pressure. Those fields
-are therefore marked `source_native_unconfirmed` instead of being guessed.
-A draft manifest may record that state; a `complete` dataset manifest cannot.
-The units and physical ranges must be confirmed during the generator pilot,
-before the first dataset freeze, as required by `config/scenarios.yaml`.
+All timestamps use UTC. The company has confirmed `ambient_temperature` and
+`ink_area_temperature` in degrees Celsius (`degC`). Although speed attribute
+names contain `mms` or `rpm`, those suffixes are treated only as candidates until
+the company confirms their semantics. Humidity, pressure, speeds, maintenance
+counters, and the units represented by their maximum values therefore remain
+`source_native_unconfirmed` instead of being guessed. A draft manifest may record
+that state; a `complete` dataset manifest cannot.
+
+The source sends some counters as `{ "value": "...", "maximum": "..." }`.
+The pilot reference parser validates the two numbers and materializes them as the
+canonical value and `<attribute>_maximum`; it does not interpret the maximum as a
+unit. The supplied snapshot confirms that four existing software defaults match
+the observed maximum values: print-bar calendar `90`, print-bar distance `250`,
+transport-vacuum work `144000`, and supply-pump work `2880000`. This is evidence
+for the draft pilot, not proof that the remaining units or ranges are final.
+
+Draft datasets created before v1.1.4 still record both temperatures as
+unconfirmed. Do not edit those manifests in place: retain them as historical
+evidence or regenerate the pilot with v1.1.4 so its telemetry schema, manifest,
+and checksums agree with the confirmed unit registry.
 
 ### Manifest integrity and compatibility
 
@@ -469,6 +484,161 @@ The command always creates a `draft`. The existing manifest contract blocks a
 after observing results. The official Day-5 pilot must run from a valid Git
 clone; development fixtures may use an explicit test SHA only inside tests.
 
+## Pilot profiling and scale decision v1.1.4
+
+Implementation D is a decision checkpoint, not model training. It answers four
+questions before producing the expensive historical candidate:
+
+1. Was a structurally valid pilot generated with the intended machines,
+   scenarios, splits, cadence, and partitions?
+2. Are all observable columns numerically usable, and how do their ranges differ
+   globally, by machine, and by scenario?
+3. How many independent maintenance lifecycles occurred per component and split,
+   and what preliminary class prevalence would the 24-hour and 168-hour horizons
+   create?
+4. Is the evidence sufficient to retain the frozen 7/2/3-machine, 180-day design,
+   or should machines, duration, or provisional behaviour parameters be reviewed?
+
+### Public commands
+
+`pilot-run` is the normal first-pass command. It generates and independently
+verifies the draft dataset, profiles it, analyzes its event table, calculates a
+scale recommendation, verifies the analysis package, and only then publishes the
+analysis directory.
+
+```powershell
+$commit = git -C "<repository-root>" rev-parse HEAD
+
+python -m mtex_pdm pilot-run `
+  --output-root data/pilots `
+  --analysis-root reports/pilots `
+  --dataset-id synthetic-pilot-day5-v1 `
+  --code-commit $commit `
+  --start-date 2026-01-01 `
+  --days 7 `
+  --train-machines 1 `
+  --validation-machines 1 `
+  --test-machines 1 `
+  --created-at 2026-08-13T08:00:00Z `
+  --reference-snapshot examples/pilot/real_machine_snapshot.example.json `
+  --json
+```
+
+Use `pilot-analyze` when the dataset already exists. It is read-only with respect
+to that dataset and refuses to analyze it when `dataset-check` would fail.
+
+```powershell
+python -m mtex_pdm pilot-analyze `
+  data/pilots/synthetic-pilot-day5-v1 `
+  --analysis-root reports/pilots `
+  --reference-snapshot examples/pilot/real_machine_snapshot.example.json `
+  --json
+```
+
+Verify a copied or archived analysis and, preferably, its link to the original
+dataset:
+
+```powershell
+python -m mtex_pdm pilot-analysis-check `
+  reports/pilots/synthetic-pilot-day5-v1-analysis `
+  --dataset-path data/pilots/synthetic-pilot-day5-v1 `
+  --json
+```
+
+All destinations are create-once. Reusing an existing dataset, analysis, or
+staging path fails instead of overwriting evidence. The `--created-at` timestamp
+is provenance supplied by the operator; it does not affect generated physical
+time. Machine counts must be positive. Scenario pools are taken from the seven
+historical scenarios already frozen for each split and cycled deterministically
+when a split has more machines than scenarios.
+
+### Analysis package
+
+```text
+<dataset-id>-analysis/
+├── profile_summary.json   # Structure plus numeric distributions and reference comparison
+├── event_analysis.json    # Independent events, censoring, delays, density, 24 h/168 h windows
+├── scale_decision.json    # Current evidence, gates, recommendation, reasons, freeze status
+├── profile_report.md      # Short thesis/operator-readable summary
+├── analysis_manifest.json # Dataset lineage plus artefact size/hash metadata
+└── checksums.sha256       # Integrity of every other analysis file
+```
+
+The profiler reports row and partition counts, machines and scenarios, split
+counts, first/last timestamps, cadence deviations, duplicates, gaps, null and
+non-finite counts, distinct values, minimum, p01, p25, median, mean, p75, p99,
+maximum, and population standard deviation. Numerical summaries are emitted for
+every canonical attribute globally, by machine, and by scenario.
+
+The committed real reference is deliberately minimal and anonymized. Only
+canonical fields needed for this pilot are retained; the wiper-pressure example
+is recorded as ignored because it is not one of the four MVP component signals.
+No host, credential, enterprise machine ID, timestamp precise enough to identify
+production, or complete operational payload is committed. The observation is
+used only to confirm known units and show whether its individual values fall
+inside or outside the synthetic pilot range.
+
+### Event prevalence and scale rules
+
+An event is one unique due/performed maintenance lifecycle, not every telemetry
+row whose future window is positive. Counts are reported per component, split,
+and scenario, with censored lifecycles and due-to-intervention delays separated.
+The 24-hour and 168-hour prevalence calculations are explicitly preliminary.
+Prevalence is reported overall and crossed by component/split and
+component/scenario; positive-window counts are also separated by label source.
+Rows without a complete future horizon are future-censored, and intervals where
+maintenance is already overdue are excluded. The final Day-6/7 label pipeline
+will define full label-source denominators and add its quality/leakage rules.
+
+Before profiling, assignments must have unique/exact manifest machine coverage,
+valid identity/seed types, the manifest split, the historical source, and the
+manifest scenario set; every telemetry row must repeat its assigned split and
+source. Before counting an event, the analysis also verifies that its machine
+exists, its split/scenario/source match that assignment, and its due and performed
+timestamps fall inside the dataset interval. The scale decision then
+compares observed independent-event density with the frozen
+targets of 100 events per component in train and 30 per component in validation
+and test. Nonzero pilot density is projected to required machine-days with a 25%
+safety margin. A zero-event component is marked inconclusive—never interpreted
+as zero risk—and recommends increasing both diversity and duration. If the pilot
+already has at least the frozen machine counts and duration, the next bounded
+experiment increases each axis by at least 25%. The possible decisions are:
+
+| Decision | Meaning |
+|----------|---------|
+| `increase_both` | Missing event evidence and/or both machine diversity and exposure are inadequate |
+| `increase_machines` | Duration is sufficient, but split diversity is below the frozen design |
+| `increase_days` | Machine counts are sufficient, but exposure is below the conservative projection |
+| `review_parameters` | Scale alone is not the issue; units, reference ranges, or gate behavior need human review |
+| `ready_for_freeze` | Current units, diversity, duration, and independent-event gates pass |
+
+The recommendation never edits YAML, lowers gates, copies events between splits,
+or promotes a dataset from `draft`. `freeze_ready` can only become true when the
+decision is `ready_for_freeze`, all event gates pass, and no source-native unit
+remains unconfirmed. Configuration changes require a separate versioned,
+human-approved implementation after examining these reports.
+
+### Windows first, MacBook second
+
+Implement, lint, and run the short 1/1/1-machine pilot on Windows first. This
+quick run checks software and report semantics; it is not intended to satisfy
+event gates. Commit v1.1.4 before producing research evidence so the manifest can
+record the exact Git SHA. Keep the dataset and analysis outside Git.
+
+After reviewing `profile_report.md`, `profile_summary.json`,
+`event_analysis.json`, and `scale_decision.json`, copy or clone the same committed
+code to the M1 Pro MacBook. Create its own Python 3.12 environment or ARM64 Docker
+image, run `environment-check`, and execute the recommended larger pilot there.
+Start with the frozen 7/2/3-machine, 180-day design only if the short pilot has no
+structural or parameter defect; otherwise run a smaller adjusted pilot first.
+The implementation stays in Git and is identical on both computers—the MacBook
+is the execution device for the larger workload, not a separate code branch.
+
+When the company answers the remaining unit questions, update the unit registry
+and regenerated schemas through a new versioned change, rerun the pilot analysis,
+and only then decide whether the dataset can be frozen. The current implementation
+allows meaningful work during that waiting period without concealing uncertainty.
+
 ## Local Setup
 
 Run the following commands from `DT_V3.0/ml`.
@@ -530,13 +700,30 @@ python -m mtex_pdm contracts-check --crate-schema path/to/cratedb-schema.json
 # Intentional regeneration after changing Python contract sources
 python -m mtex_pdm contracts-export
 
-# Generate the three-machine draft pilot (requires a real Git SHA)
+# Generate the default three-machine draft pilot (requires a real Git SHA)
 python -m mtex_pdm dataset-generate-pilot --output-root data/pilots \
   --dataset-id synthetic-pilot-v1 --code-commit <real-git-sha> \
   --start-date 2026-01-01 --days 7 --created-at 2026-08-12T12:00:00Z
 
 # Verify checksums, schemas, partitions, counts, manifest, configs, and report
 python -m mtex_pdm dataset-check data/pilots/synthetic-pilot-v1
+
+# Analyze an existing verified pilot without modifying it
+python -m mtex_pdm pilot-analyze data/pilots/synthetic-pilot-v1 \
+  --analysis-root reports/pilots \
+  --reference-snapshot examples/pilot/real_machine_snapshot.example.json
+
+# Verify analysis integrity and source-dataset lineage
+python -m mtex_pdm pilot-analysis-check \
+  reports/pilots/synthetic-pilot-v1-analysis \
+  --dataset-path data/pilots/synthetic-pilot-v1
+
+# Or run generation, verification, profiling, and scale decision together
+python -m mtex_pdm pilot-run --output-root data/pilots \
+  --analysis-root reports/pilots --dataset-id synthetic-pilot-v2 \
+  --code-commit <real-git-sha> --start-date 2026-01-01 --days 7 \
+  --created-at 2026-08-13T08:00:00Z \
+  --reference-snapshot examples/pilot/real_machine_snapshot.example.json
 
 # Full machine/environment report
 python -m mtex_pdm environment-check
@@ -566,9 +753,9 @@ second dependency graph, validates the frozen configuration, and runs the test
 suite. The final process uses a non-root user.
 
 ```bash
-docker build --file Dockerfile.training --tag mtex-pdm-training:1.1.3 .
-docker run --rm --cpus 2 --memory 4g mtex-pdm-training:1.1.3
-docker run --rm mtex-pdm-training:1.1.3 components-check --json
+docker build --file Dockerfile.training --tag mtex-pdm-training:1.1.4 .
+docker run --rm --cpus 2 --memory 4g mtex-pdm-training:1.1.4
+docker run --rm mtex-pdm-training:1.1.4 components-check --json
 ```
 
 The image defaults to the full `environment-check`. Its entry point is
@@ -576,7 +763,7 @@ The image defaults to the full `environment-check`. Its entry point is
 tools:
 
 ```bash
-docker run --rm --entrypoint python mtex-pdm-training:1.1.3 -m pytest
+docker run --rm --entrypoint python mtex-pdm-training:1.1.4 -m pytest
 ```
 
 ### Device-specific builds
@@ -588,7 +775,7 @@ docker buildx build \
   --platform linux/arm64 \
   --load \
   --file Dockerfile.training \
-  --tag mtex-pdm-training:1.1.3-arm64 \
+  --tag mtex-pdm-training:1.1.4-arm64 \
   .
 ```
 
@@ -599,7 +786,7 @@ docker buildx build \
   --platform linux/amd64 \
   --load \
   --file Dockerfile.training \
-  --tag mtex-pdm-training:1.1.3-amd64 \
+  --tag mtex-pdm-training:1.1.4-amd64 \
   .
 ```
 
@@ -662,7 +849,12 @@ Available now:
 - Bounded daily/machine Parquet output with fixed schema and Zstandard options.
 - Atomic draft dataset publication with effective configs and scenario assignments.
 - Validated dataset manifest, SHA-256 file integrity, and generation report.
-- Independent dataset verifier and three-machine pilot-generation commands.
+- Independent dataset verifier and configurable pilot-generation commands.
+- Read-only numerical/cadence profiling globally, by machine, and by scenario.
+- Independent-event, censorship, intervention-delay, and preliminary 24 h/168 h prevalence reports.
+- Conservative scale recommendation against the frozen machine/day/event targets.
+- Atomic, checksummed analysis packages with optional source-dataset lineage verification.
+- Minimal anonymized real reference with both temperature units confirmed as degrees Celsius.
 - Byte-identical repeat/checkpoint-resume tests plus semantic integrity gates.
 - Parquet and LightGBM smoke tests.
 - Reproducible, non-root ARM64/x86-64 Docker build.
@@ -670,9 +862,9 @@ Available now:
 
 Intentionally deferred to the next targets:
 
-- Confirmation of source-native physical units during the generator pilot.
-- Review and freeze of pilot physical ranges and degradation rates before dataset generation.
-- Official Day-5 pilot from a valid Git clone and subsequent profiling/event review.
+- Confirmation of the remaining source-native units by the company.
+- Human review and versioned freeze of pilot physical ranges and degradation rates.
+- Official post-v1.1.4 Day-5 pilot using the resulting real Git commit and subsequent MacBook scale run.
 - Full 12-machine × 180-day dataset after unit/parameter review and freeze.
 - MQTT output and wall-clock scheduling for prospective machines.
 - Complete dataset/event-volume reproducibility gate, labels, feature computation,

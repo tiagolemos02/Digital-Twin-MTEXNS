@@ -169,8 +169,10 @@ def test_telemetry_arrow_schema_preserves_utc_and_contract_metadata() -> None:
     assert TELEMETRY_ARROW_SCHEMA.field("ambient_temperature").type == pa.float64()
     assert TELEMETRY_ARROW_SCHEMA.metadata is not None
     assert TELEMETRY_ARROW_SCHEMA.metadata[b"contract_version"] == b"1.0.0"
+    assert TELEMETRY_ARROW_SCHEMA.metadata[b"unit.ambient_temperature"] == b"degC"
+    assert TELEMETRY_ARROW_SCHEMA.metadata[b"unit.ink_area_temperature"] == b"degC"
     assert (
-        TELEMETRY_ARROW_SCHEMA.metadata[b"unit.ambient_temperature"] == b"source_native_unconfirmed"
+        TELEMETRY_ARROW_SCHEMA.metadata[b"unit.ink_area_humidity"] == b"source_native_unconfirmed"
     )
 
 

@@ -42,10 +42,8 @@ ATTRIBUTE_UNITS: dict[str, str] = {
 }
 ATTRIBUTE_UNITS.update(
     {
-        "speed_mms_print_bar": "mm/s",
-        "speed_mms_transport": "mm/s",
-        "speed_rpm_print_bar": "rpm",
-        "speed_rpm_transport": "rpm",
+        "ambient_temperature": "degC",
+        "ink_area_temperature": "degC",
     }
 )
 

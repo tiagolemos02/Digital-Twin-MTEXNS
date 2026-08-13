@@ -590,24 +590,60 @@ def generate_pilot_dataset(
     created_at: datetime,
     config_directory: Path,
     master_seed: int = 20260729,
+    train_machine_count: int = 1,
+    validation_machine_count: int = 1,
+    test_machine_count: int = 1,
 ) -> DatasetGenerationReceipt:
-    """Generate the small three-machine draft used before the full historical freeze."""
+    """Generate a configurable draft pilot used before the full historical freeze."""
 
     if days <= 0:
         raise ValueError("pilot days must be positive")
+    counts = {
+        DatasetSplit.TRAIN: train_machine_count,
+        DatasetSplit.VALIDATION: validation_machine_count,
+        DatasetSplit.TEST: test_machine_count,
+    }
+    if any(count <= 0 for count in counts.values()):
+        raise ValueError("pilot machine counts must be positive")
     start_at = datetime.combine(start_date, datetime.min.time(), tzinfo=UTC)
+    scenario_pools = {
+        DatasetSplit.TRAIN: (
+            "normal_operation",
+            "high_production",
+            "intermittent_operation",
+            "temperature_stress",
+            "humidity_stress",
+            "supply_pressure_drift",
+            "planned_maintenance",
+        ),
+        DatasetSplit.VALIDATION: (
+            "high_production",
+            "intermittent_operation",
+            "temperature_stress",
+            "humidity_stress",
+            "supply_pressure_drift",
+            "planned_maintenance",
+            "normal_operation",
+        ),
+        DatasetSplit.TEST: (
+            "intermittent_operation",
+            "temperature_stress",
+            "humidity_stress",
+            "supply_pressure_drift",
+            "planned_maintenance",
+            "normal_operation",
+            "high_production",
+        ),
+    }
     machines = tuple(
         MachineSimulationSpec(
-            machine_id=f"synthetic-{split.value}-pilot-01",
-            scenario_id=scenario,
+            machine_id=f"synthetic-{split.value}-pilot-{index + 1:02d}",
+            scenario_id=scenario_pools[split][index % len(scenario_pools[split])],
             data_source=DataSource.SYNTHETIC_HISTORICAL,
             split=split,
         )
-        for split, scenario in (
-            (DatasetSplit.TRAIN, "normal_operation"),
-            (DatasetSplit.VALIDATION, "high_production"),
-            (DatasetSplit.TEST, "intermittent_operation"),
-        )
+        for split in (DatasetSplit.TRAIN, DatasetSplit.VALIDATION, DatasetSplit.TEST)
+        for index in range(counts[split])
     )
     config = GenerationConfig(
         mode=GenerationMode.OFFLINE,
@@ -725,6 +761,8 @@ def verify_dataset(dataset_path: Path) -> DatasetVerificationReport:
         errors.append(f"invalid maintenance-event file: {error}")
 
     if manifest is not None:
+        if manifest.units != {"time_index": "UTC", **ATTRIBUTE_UNITS}:
+            errors.append("manifest units do not match current canonical units")
         manifest_paths = {artifact.path for artifact in manifest.files}
         expected_manifest_paths = {
             path.relative_to(root).as_posix()
