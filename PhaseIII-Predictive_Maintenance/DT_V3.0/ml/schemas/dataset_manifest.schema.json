@@ -99,7 +99,7 @@
       "type": "object"
     }
   },
-  "$id": "https://mtex.local/schemas/v1/dataset_manifest.schema.json",
+  "$id": "https://mtex.local/schemas/v1.1/dataset_manifest.schema.json",
   "additionalProperties": false,
   "properties": {
     "code_commit": {
@@ -116,8 +116,8 @@
       "type": "object"
     },
     "config_version": {
-      "const": "1.0.0",
-      "default": "1.0.0",
+      "const": "1.1.0",
+      "default": "1.1.0",
       "title": "Config Version",
       "type": "string"
     },
@@ -148,10 +148,22 @@
       "title": "Generator Version",
       "type": "string"
     },
+    "machine_profile": {
+      "const": "TPPPS4",
+      "default": "TPPPS4",
+      "title": "Machine Profile",
+      "type": "string"
+    },
     "master_seed": {
       "minimum": 0,
       "title": "Master Seed",
       "type": "integer"
+    },
+    "print_architecture": {
+      "const": "multipass",
+      "default": "multipass",
+      "title": "Print Architecture",
+      "type": "string"
     },
     "resample_minutes": {
       "exclusiveMinimum": 0,
@@ -175,8 +187,8 @@
       "type": "object"
     },
     "schema_version": {
-      "const": "1.0.0",
-      "default": "1.0.0",
+      "const": "1.1.0",
+      "default": "1.1.0",
       "title": "Schema Version",
       "type": "string"
     },
@@ -205,6 +217,29 @@
         "complete"
       ],
       "title": "Status",
+      "type": "string"
+    },
+    "synthetic_assumptions": {
+      "default": [
+        "print_bar_effective_motion_is_time_compressed",
+        "condition_events_are_synthetic_and_anchored_to_official_maxima",
+        "momentary_enterprise_snapshot_does_not_calibrate_distributions"
+      ],
+      "items": {
+        "enum": [
+          "print_bar_effective_motion_is_time_compressed",
+          "condition_events_are_synthetic_and_anchored_to_official_maxima",
+          "momentary_enterprise_snapshot_does_not_calibrate_distributions"
+        ],
+        "type": "string"
+      },
+      "title": "Synthetic Assumptions",
+      "type": "array"
+    },
+    "telemetry_catalog_version": {
+      "const": "1.0.0",
+      "default": "1.0.0",
+      "title": "Telemetry Catalog Version",
       "type": "string"
     },
     "units": {

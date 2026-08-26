@@ -1,10 +1,4 @@
-config_version: "1.1.0"
-
-machine_profile:
-  model: TPPPS4
-  print_architecture: multipass
-  source_attribute_count: 105
-  snapshot_role: format_example_only
+config_version: "1.0.0"
 
 reproducibility:
   master_seed: 20260729
@@ -24,7 +18,8 @@ generation_modes:
     publish_seconds: 60
     initial_machine_count: 6
     attribute_count:
-      exact: 105
+      minimum: 20
+      maximum: 30
     persistent_state: true
   mqtt_demonstration:
     publish_seconds: 8
@@ -40,7 +35,7 @@ historical_split:
       - intermittent_operation
       - temperature_stress
       - humidity_stress
-      - supply_pump_stress
+      - supply_pressure_drift
       - planned_maintenance
   validation:
     machine_count: 2
@@ -51,7 +46,7 @@ historical_split:
       - intermittent_operation
       - temperature_stress
       - humidity_stress
-      - supply_pump_stress
+      - supply_pressure_drift
       - planned_maintenance
   test:
     machine_count: 3
@@ -62,7 +57,7 @@ historical_split:
       - intermittent_operation
       - temperature_stress
       - humidity_stress
-      - supply_pump_stress
+      - supply_pressure_drift
       - planned_maintenance
 
 robustness_scenarios:
@@ -86,7 +81,7 @@ prospective_mqtt:
     - prospective_calendar_wear
     - prospective_intense_production
     - prospective_temperature_stress
-    - prospective_pump_stress
+    - prospective_pressure_instability
     - prospective_combined_stress
     - prospective_telemetry_gap
     - prospective_maintenance_reset
@@ -123,10 +118,6 @@ event_volume_gate:
 
 parameter_freeze:
   scenario_families_frozen_in_this_version: true
-  official_units_and_maxima_confirmed: true
-  momentary_snapshot_calibrates_distributions: false
-  print_bar_distance_uses_documented_time_compression: true
-  condition_events_are_synthetic_and_anchored_to_official_maxima: true
   physical_ranges_defined_during_generator_pilot: true
   physical_ranges_must_freeze_before_dataset_generation: true
   physical_range_changes_require_new_generator_config_version: true

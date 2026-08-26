@@ -12,12 +12,13 @@ from typing import Any, cast
 
 import yaml
 
-CONFIG_VERSION = "1.0.0"
+CONFIG_VERSION = "1.1.0"
 CONFIG_FILENAMES = (
     "components.yaml",
     "decision_policy.yaml",
     "mvp.yaml",
     "scenarios.yaml",
+    "tppps4_telemetry_catalog.json",
 )
 COMPONENT_KEYS = (
     "print_bar_calendar",
@@ -158,6 +159,8 @@ def _require(condition: bool, message: str) -> None:
 
 def _validate_semantics(configs: Mapping[str, Mapping[str, Any]]) -> None:
     for filename, config in configs.items():
+        if filename == "tppps4_telemetry_catalog.json":
+            continue
         _require(
             config.get("config_version") == CONFIG_VERSION,
             f"{filename} config_version must be {CONFIG_VERSION}",
@@ -167,6 +170,13 @@ def _validate_semantics(configs: Mapping[str, Mapping[str, Any]]) -> None:
     components = configs["components.yaml"]
     scenarios = configs["scenarios.yaml"]
     decision_policy = configs["decision_policy.yaml"]
+    catalog_payload = configs["tppps4_telemetry_catalog.json"]
+    try:
+        from mtex_pdm.telemetry_catalog import TelemetryCatalog
+
+        TelemetryCatalog.model_validate(catalog_payload)
+    except ValueError as error:
+        raise ConfigValidationError(f"invalid TPPPS4 catalog: {error}") from error
 
     freeze = cast(Mapping[str, Any], mvp.get("freeze", {}))
     _require(freeze.get("status") == "frozen", "mvp.yaml freeze.status must be frozen")

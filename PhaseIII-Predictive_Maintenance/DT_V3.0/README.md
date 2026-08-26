@@ -1,15 +1,14 @@
-# Phase III - Predictive Maintenance v1.1.4
+# Phase III - Predictive Maintenance v1.1.5
 
-**Version 1.1.4 turns a draft synthetic dataset into an auditable pilot experiment with profiling, event prevalence, and an explicit scale decision.**
+**Version 1.1.5 aligns the synthetic-data contract and generator with the authorised TPPPS4 multipass telemetry catalogue.**
 
-Version `1.1.4` adds configurable pilot size, structural and numerical profiling, independent-event analysis, preliminary 24-hour/7-day
-window prevalence, a conservative machine/day recommendation, immutable analysis artefacts, SHA-256 verification, and a single command
-for generation through decision. One anonymized real-machine snapshot confirms both temperature fields in degrees Celsius and supports
-range comparison; every other source-native unit remains explicitly unconfirmed.
+Version `1.1.5` records all 105 TPPPS4 source attributes and their confirmed metadata, selects the 16 source attributes used by the predictive
+MVP, derives four counter maxima, models all 25 machine-status codes categorically, and corrects the calendar, distance, vacuum-filter, and
+colour-1 supply-pump dynamics against the official maintenance maxima. The configuration and persisted contract advance to `1.1.0`; the
+source-catalogue version is `1.0.0`.
 
-Version `1.1.4` does not automatically freeze or edit the v1.0.0 MVP configuration. It does not treat one real observation as a population,
-does not claim industrial predictive performance, and does not yet implement final labels/features, models, MQTT, enterprise export,
-FIWARE prediction persistence, or portal changes.
+The supplied TPPPS4 observation remains a format example rather than a calibrating population. Version `1.1.5` does not implement the
+continuous MQTT publisher (Implementation E), does not train models, and does not claim industrial predictive performance.
 
 The existing Phase II security model remains the baseline: browser traffic goes through the portal, PEP Proxy, API Gateway, Keyrock, and AuthzForce policies. CrateDB and QuantumLeap are intentionally kept internal-only.
 
@@ -19,11 +18,58 @@ The existing Phase II security model remains the baseline: browser traffic goes 
 
 **Phase**: `Phase III - Predictive Maintenance`
 
-**Version**: `1.1.4`
+**Version**: `1.1.5`
 
 **Author**: Tiago Lemos
 
 **Licence**: MIT
+
+---
+
+## Scope of v1.1.5
+
+### Implemented
+
+- Authorised, checksummed TPPPS4 multipass catalogue containing exactly 105 source attributes and the 25 supplied `machine_status` codes
+- Explicit selection of 16 source attributes plus four derived counter maxima for the canonical predictive dataset
+- Confirmed units and semantic types for temperature, humidity, production counts, maintenance counters, speeds, and categorical status codes
+- Frozen configuration and persisted-data contract `1.1.0`, while preserving the complete previous v1.0.0 configuration under `ml/config/archive/v1.0.0`
+- Removal of the invented `pressure_supply_color_1` signal and pressure dependency from the initial colour-1 supply-pump target
+- Documented deferred mapping of `pressure_subtank_1` position 1 to colour 1, without adding a signal that is absent from the authorised 105-attribute payload
+- TPPPS4 lifecycle states and strict categorical validation for all 25 known status codes
+- Calendar counter expressed in days, print-bar distance accumulated only while Printing, and configurable time compression for accelerated history
+- Condition degradation anchored to the official vacuum-work and pump-work maxima instead of step-count artefacts
+- One typed catalogue validator shared by config/environment diagnostics, with dataset generation refusing behavior maxima that diverge from the frozen catalogue
+- TPPPS4, multipass, catalogue-version, and modelling-assumption provenance in dataset manifests and generation reports
+- Contract/schema regeneration, SHA-256 updates, focused catalogue tests, and regression coverage for status codes, units, counter rates, and pressure exclusion
+
+### New
+
+| File | Purpose |
+|------|---------|
+| `ml/config/tppps4_telemetry_catalog.json` | Authorised 105-attribute TPPPS4 source catalogue, status dictionary, predictive selection, units, and explicit assumptions |
+| `ml/src/mtex_pdm/telemetry_catalog.py` | Typed catalogue loader, invariant checks, unit registry, and machine-status enum |
+| `ml/tests/test_telemetry_catalog.py` | Protects exact catalogue size, status mapping, predictive selection, units, and deferred-pressure boundary |
+| `ml/config/archive/v1.0.0/` | Immutable copy of the configuration superseded by the reviewed v1.1.0 contract |
+
+### Why
+
+- Replace provisional or invented signal semantics with the company-authorised TPPPS4 contract before labels, features, MQTT, or model training
+- Ensure accelerated synthetic histories preserve the meaning of days, metres, seconds, millimetres per second, revolutions per minute, percentages, and counts
+- Prevent a numerical `machine_status` code from being treated as an ordered continuous measurement
+- Keep the future MQTT payload compatible with all 105 TPPPS4 attributes while limiting the predictive dataset to the 20 fields actually required by the MVP
+- Make every regenerated dataset self-describing about architecture, catalogue, compression, and assumptions
+- Prevent the v1.1.4 pilot prevalence from being mistaken for evidence produced by the corrected physical model
+
+### Not Changed
+
+- The momentary TPPPS4 snapshot is not used to estimate ranges, distributions, degradation rates, or event frequencies
+- Only supply pump colour 1 is an initial target; colours 2–4 remain present in the source catalogue but outside the MVP target set
+- The future MQTT publisher, broker integration, IoT Agent/Orion flow, warm-up, machine registration, and enterprise export are not implemented
+- No labels, final feature pipeline, model training, calibration, SHAP, inference, FIWARE prediction persistence, or portal change
+- Existing v1.1.4 pilot artefacts remain valid as software, reproducibility, and resource evidence, but their event/prevalence conclusions are superseded and must be regenerated with v1.1.5
+
+Full catalogue, unit, generator, compatibility, and regeneration details are documented in [`ml/README.md`](ml/README.md).
 
 ---
 

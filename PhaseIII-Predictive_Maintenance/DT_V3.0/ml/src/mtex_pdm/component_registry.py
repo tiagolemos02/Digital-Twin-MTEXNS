@@ -17,6 +17,7 @@ from mtex_pdm.contracts.tabular import (
     CANONICAL_NUMERIC_ATTRIBUTES,
     CRATEDB_REQUIRED_NUMERIC_ATTRIBUTES,
 )
+from mtex_pdm.telemetry_catalog import load_telemetry_catalog
 
 
 class ComponentConfigError(ValueError):
@@ -193,7 +194,7 @@ class ComponentDefinition(_FrozenModel):
 
 
 class ComponentRegistry(_FrozenModel):
-    config_version: Literal["1.0.0"]
+    config_version: Literal["1.1.0"]
     label_contract: LabelContract
     shared_observable_attributes: SharedObservableAttributes
     components: tuple[ComponentDefinition, ...]
@@ -323,6 +324,7 @@ def collect_component_registry_report(
 
     resolved_directory = discover_config_directory(config_directory)
     registry = load_component_registry(resolved_directory)
+    catalog = load_telemetry_catalog(resolved_directory)
     return {
         "healthy": True,
         "config_directory": str(resolved_directory),
@@ -340,4 +342,7 @@ def collect_component_registry_report(
             len(component.synthetic_extensions) for component in registry.components
         ),
         "feature_exclusion_count": len(registry.feature_exclusions),
+        "source_catalog_attribute_count": len(catalog.attributes),
+        "selected_source_attribute_count": len(catalog.mvp_selection.source_attributes),
+        "derived_attribute_count": len(catalog.mvp_selection.derived_maximum_attributes),
     }

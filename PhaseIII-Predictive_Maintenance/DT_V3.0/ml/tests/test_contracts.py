@@ -168,12 +168,13 @@ def test_telemetry_arrow_schema_preserves_utc_and_contract_metadata() -> None:
     assert TELEMETRY_ARROW_SCHEMA.field("time_index").type == pa.timestamp("ms", tz="UTC")
     assert TELEMETRY_ARROW_SCHEMA.field("ambient_temperature").type == pa.float64()
     assert TELEMETRY_ARROW_SCHEMA.metadata is not None
-    assert TELEMETRY_ARROW_SCHEMA.metadata[b"contract_version"] == b"1.0.0"
+    assert TELEMETRY_ARROW_SCHEMA.metadata[b"contract_version"] == b"1.1.0"
     assert TELEMETRY_ARROW_SCHEMA.metadata[b"unit.ambient_temperature"] == b"degC"
     assert TELEMETRY_ARROW_SCHEMA.metadata[b"unit.ink_area_temperature"] == b"degC"
-    assert (
-        TELEMETRY_ARROW_SCHEMA.metadata[b"unit.ink_area_humidity"] == b"source_native_unconfirmed"
-    )
+    assert TELEMETRY_ARROW_SCHEMA.metadata[b"unit.ink_area_humidity"] == b"%"
+    assert TELEMETRY_ARROW_SCHEMA.metadata[b"unit.print_bar_time_since_last_pm"] == b"d"
+    assert TELEMETRY_ARROW_SCHEMA.metadata[b"semantic.machine_status"] == b"categorical_code"
+    assert "pressure_supply_color_1" not in TELEMETRY_ARROW_SCHEMA.names
 
 
 def _event_counts(count: int = 1) -> dict[ComponentKey, int]:
@@ -190,7 +191,7 @@ def _feature_schema() -> FeatureSchema:
                 name="ambient_temperature_mean_1h",
                 position=0,
                 dtype=FeatureDType.FLOAT64,
-                unit="source_native_unconfirmed",
+                unit="degC",
                 window_hours=1,
                 nullable=False,
                 imputation="causal_forward_fill_10m",
@@ -341,6 +342,8 @@ def test_contracts_check_cli_validates_checked_in_bundle() -> None:
             str(ml_root / "examples" / "contracts"),
             "--crate-schema",
             str(ml_root / "examples" / "contracts" / "crate_schema_snapshot.example.json"),
+            "--config-dir",
+            str(ml_root / "config"),
             "--json",
         ],
         cwd=ml_root,
@@ -353,3 +356,5 @@ def test_contracts_check_cli_validates_checked_in_bundle() -> None:
     report = json.loads(process.stdout)
     assert report["healthy"]
     assert report["crate_schema"]["compatible"]
+    assert report["contract_version"] == "1.1.0"
+    assert report["telemetry_catalog"]["attribute_count"] == 105

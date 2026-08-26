@@ -1,5 +1,5 @@
 {
-  "$id": "https://mtex.local/schemas/v1/crate_telemetry_row.schema.json",
+  "$id": "https://mtex.local/schemas/v1.1/crate_telemetry_row.schema.json",
   "description": "A row returned by the current QuantumLeap/CrateDB historical table.",
   "properties": {
     "ambient_humidity": {
@@ -119,18 +119,6 @@
       ],
       "default": null,
       "title": "Machine Status"
-    },
-    "pressure_supply_color_1": {
-      "anyOf": [
-        {
-          "type": "number"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Pressure Supply Color 1"
     },
     "print_bar_time_since_last_pm": {
       "anyOf": [

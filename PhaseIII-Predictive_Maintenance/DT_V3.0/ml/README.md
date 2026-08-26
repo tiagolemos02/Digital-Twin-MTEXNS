@@ -1,18 +1,18 @@
 # MTEX Predictive-Maintenance Module
 
-Version `1.1.4` generates configurable draft pilots and turns their verified
-Parquet packages into deterministic profiling, independent-event prevalence,
-and conservative scale-decision artefacts. `pilot-run` covers generation through
-decision; `pilot-analysis-check` independently verifies report integrity and
-source-dataset lineage.
+Version `1.1.5` aligns the synthetic generator and persisted contract with the
+authorised TPPPS4 multipass catalogue. The source catalogue contains exactly 105
+attributes and all 25 supplied machine-status codes. The predictive dataset uses
+16 of those source attributes plus four derived counter maxima; the future MQTT
+adapter will retain the complete 105-attribute payload.
 
-One anonymized real-machine observation confirms both temperature attributes in
-degrees Celsius and supports range comparisons. It is not a representative
-production sample. All other source-native units remain unconfirmed and block
-the final dataset freeze. This release does not yet publish MQTT, calculate final
-labels or features, train models, connect to enterprise CrateDB, write predictions
-to FIWARE, or change the portal. Frozen configuration and persisted contract
-versions remain at `1.0.0`; the software release is `1.1.4`.
+The company workbook is the authority for names, units, types, hierarchies, and
+counter limits. The supplied live TPPPS4 observation is only a format example and
+is not used to calibrate distributions or event frequencies. The software release
+is `1.1.5`, configuration and persisted contracts are `1.1.0`, and the source
+catalogue is `1.0.0`. This release does not implement MQTT/Implementation E,
+labels, features, models, enterprise access, FIWARE prediction persistence, or
+portal changes.
 
 ## Environment Contract
 
@@ -35,12 +35,14 @@ Python 3.12.
 
 ```text
 ml/
-├── config/                  # Frozen v1.0.0 MVP contract and checksums
+├── config/                  # Frozen v1.1.0 contract, source catalogue, and checksums
+│   └── archive/v1.0.0/      # Superseded configuration retained unchanged
 ├── examples/contracts/      # Valid and deliberately invalid contract fixtures
 ├── examples/pilot/          # Minimal anonymized real reference observation
 ├── schemas/                 # Generated JSON/Arrow schemas and SHA-256 checksums
 ├── src/mtex_pdm/
 │   ├── component_registry.py # Typed four-component operational registry
+│   ├── telemetry_catalog.py  # TPPPS4 catalogue and machine-status contract
 │   ├── contracts/           # Typed records, manifests, physical schemas, registry
 │   ├── generator/           # Engine, behaviour, Parquet datasets, events, checkpoints
 │   └── pilot_analysis.py    # Profiling, event prevalence, scale decision, verification
@@ -59,7 +61,7 @@ transitive dependencies and accepted package hashes. Install from the lock for
 normal work. Regenerate it only as an explicit dependency update, followed by
 all checks and a versioned documentation entry.
 
-## Data Contract v1.0.0
+## Data Contract v1.1.0
 
 Pydantic models are the source of truth for JSON records and manifests. PyArrow
 is the source of truth for the two Parquet table layouts. Files under `schemas/`
@@ -119,28 +121,58 @@ python -m mtex_pdm contracts-check \
 No database credential, hostname, enterprise entity ID, or raw production row
 belongs in the repository. The supplied snapshot is a schema-only example.
 
-### Units and dataset freeze
+### TPPPS4 catalogue, units, and dataset compatibility
 
-All timestamps use UTC. The company has confirmed `ambient_temperature` and
-`ink_area_temperature` in degrees Celsius (`degC`). Although speed attribute
-names contain `mms` or `rpm`, those suffixes are treated only as candidates until
-the company confirms their semantics. Humidity, pressure, speeds, maintenance
-counters, and the units represented by their maximum values therefore remain
-`source_native_unconfirmed` instead of being guessed. A draft manifest may record
-that state; a `complete` dataset manifest cannot.
+`config/tppps4_telemetry_catalog.json` is the versioned machine-source contract.
+It contains exactly 105 attributes from the TPPPS4 payload, including fields not
+selected for predictive modelling, and records the authorised type, unit,
+hierarchy, and optional maximum semantics. The main unit families are:
 
-The source sends some counters as `{ "value": "...", "maximum": "..." }`.
-The pilot reference parser validates the two numbers and materializes them as the
-canonical value and `<attribute>_maximum`; it does not interpret the maximum as a
-unit. The supplied snapshot confirms that four existing software defaults match
-the observed maximum values: print-bar calendar `90`, print-bar distance `250`,
-transport-vacuum work `144000`, and supply-pump work `2880000`. This is evidence
-for the draft pilot, not proof that the remaining units or ranges are final.
+| Signal family | Canonical unit |
+|---------------|----------------|
+| Temperatures | `degC` |
+| Humidity | `%` |
+| Production and relay/contactor usage | `count` |
+| Calendar counters | `d` |
+| Travelled-distance counters | `m` |
+| Work-time counters | `s` |
+| Linear speed | `mm/s` |
+| Rotational speed | `rpm` |
+| `machine_status` | `status_code` (categorical) |
 
-Draft datasets created before v1.1.4 still record both temperatures as
-unconfirmed. Do not edit those manifests in place: retain them as historical
-evidence or regenerate the pilot with v1.1.4 so its telemetry schema, manifest,
-and checksums agree with the confirmed unit registry.
+The source encodes bounded counters as `{ "value": "...", "maximum": "..." }`.
+The canonical predictive record flattens the selected four counters into value
+and `<attribute>_maximum` columns while preserving the counter's unit. The
+official maxima are 90 days for print-bar calendar maintenance, 250 metres for
+print-bar travel, 144000 seconds for transport-vacuum filter work, and 2880000
+seconds for colour-1 supply-pump work.
+
+`config-check`, `environment-check`, and the contract registry reuse the same
+typed catalogue validator for the exact status names/codes, all 105 canonical
+units, the 16+4 selection, and the four official maxima. Dataset generation also
+compares its effective behavior parameters with those frozen maxima before it
+creates an output directory, preventing configuration and simulated physics from
+silently diverging.
+
+`machine_status` is physically stored as a numeric CrateDB/Parquet value for
+compatibility, but it is semantically categorical. The catalogue and
+`MachineStatus` enum accept only the 25 authorised integer codes; their numeric
+distance has no modelling meaning.
+
+The 16 selected source attributes are `iamalive`, `machine_status`, four
+environment variables, two production counts, the four target counters, and the
+four relevant speed signals. Four derived maximum fields bring the canonical
+predictive telemetry width to 20. `pressure_supply_color_1` was removed because
+it does not exist in the authorised 105-attribute payload. The confirmed mapping
+of `pressure_subtank_1` position 1 to colour 1 is documented for a later version,
+but that source field is also outside this strict TPPPS4 payload and is not used
+by the initial pump model.
+
+Datasets written by v1.1.4 used the superseded v1.0.0 contract and old generator
+dynamics. Keep them as technical evidence for portability, determinism, and
+resource use, but do not reuse their event counts or prevalence as v1.1.5 model
+evidence. Regenerate a new dataset and analysis package; manifests fail closed on
+the old schema/config version instead of being edited in place.
 
 ### Manifest integrity and compatibility
 
@@ -165,8 +197,8 @@ the example feature schema against the example model manifest.
 
 ## Four-component operational registry
 
-`config/components.yaml` remains the frozen source of truth. The registry
-introduced in version 1.0.3 does not alter that file or its checksum; it validates
+`config/components.yaml` remains the frozen source of truth. Version 1.1.5 moves
+that configuration to v1.1.0 while retaining v1.0.0 in the archive; the registry validates
 the complete document and exposes immutable definitions through
 `mtex_pdm.component_registry`.
 
@@ -202,11 +234,8 @@ The registry fails closed when:
 - component attribute lists overlap or contain duplicates;
 - `iamalive` is used as a component feature instead of connectivity evidence;
 - a synthetic-only signal is not declared as an extension;
-- a synthetic extension is made mandatory for real shadow data.
-
-`pressure_supply_color_1` is the one current synthetic extension. It is an
-observable signal for the Python predictive simulator, is absent from the ESP32
-simulator, and remains optional for real shadow data.
+- a synthetic extension is made mandatory for real shadow data;
+- the selected source catalogue is not exactly 16 attributes plus four derived maxima.
 
 Run the diagnostic from `DT_V3.0/ml`:
 
@@ -215,9 +244,10 @@ python -m mtex_pdm components-check
 python -m mtex_pdm components-check --json
 ```
 
-The current report contains four components, eight shared observables, 21 unique
-observables in total, two condition components with hidden state, one synthetic
-extension, and nine mandatory leakage exclusions.
+The current report contains four components, eight shared observables, 20 unique
+canonical observables, two condition components with hidden state, zero synthetic
+extensions, nine mandatory leakage exclusions, and lineage to all 105 source
+catalogue attributes.
 
 ## Executable generator core (introduced in v1.1.1)
 
@@ -326,9 +356,9 @@ adapter will consume the same streaming interface and write bounded partitions.
 `MachineBehavior` is the first complete pilot implementation of the state
 transition. Its parameters are immutable and validated by `BehaviorParameters`.
 The defaults are software-versioned working assumptions, not confirmed
-industrial calibration: units, safe ranges, maxima, and degradation rates must
-be reviewed with source data and frozen under a new generator-configuration
-version before producing the definitive historical dataset.
+industrial calibration. Units and official counter maxima are now confirmed;
+safe ranges, distributions, time-compression, and degradation rates must still
+be reviewed before producing the definitive historical dataset.
 
 ### Causal step order
 
@@ -357,7 +387,15 @@ only; the machine continues evolving internally.
 | Print bar — calendar | Elapsed calendar time | Counter reaches current calendar maximum | Calendar counter and component degradation |
 | Print bar — distance | Produced copies and travelled distance | Distance reaches current configured maximum | Distance counter and component degradation |
 | Transport vacuum air filter | Active time, load, and humidity | Work counter or hidden condition reaches limit | Vacuum-work counter and component degradation |
-| Supply pump colour 1 | Active time, ink-area temperature, and supply pressure instability | Work counter or hidden condition reaches limit | Pump-work counter and component degradation |
+| Supply pump colour 1 | Active time, ink-area temperature, and production load | Work counter or hidden condition reaches limit | Pump-work counter and component degradation |
+
+Calendar time advances in days as `step_seconds / 86400`. Print-bar distance is
+integrated only while status is Printing, using the linear `mm/s` speed and the
+configurable `print_bar_effective_motion_fraction`. Its default `1/288` is an
+explicit accelerated-history assumption that preserves the previous pilot scale;
+it is not a measured TPPPS4 duty cycle. Vacuum and pump condition degradation are
+normalized against their official work-time maxima, with documented scenario
+stress multipliers allowing earlier synthetic condition events.
 
 Limits remain observable and may change prospectively. The
 `limit_reconfiguration` scenario, for example, lowers the distance maximum
@@ -366,7 +404,7 @@ during the run; no past label or event is rewritten.
 ### Scenarios and split reservations
 
 The catalogue implements every scenario ID frozen in `config/scenarios.yaml`:
-normal/high/intermittent production, temperature, humidity and bounded pressure stress,
+normal/high/intermittent production, temperature, humidity, and supply-pump stress,
 planned maintenance, held-out robustness cases, and prospective MQTT cases. It
 also provides explicit pilot aliases for delayed intervention, missing sensors,
 duplicates, delayed telemetry, and return after unavailability.
@@ -479,12 +517,12 @@ python -m mtex_pdm dataset-check data/pilots/synthetic-pilot-v1
 ```
 
 The command always creates a `draft`. The existing manifest contract blocks a
-`complete` dataset while units contain `source_native_unconfirmed` or the
-100/30/30 event gate is not reached. Do not invent a commit or reduce the gates
+`complete` dataset while the 100/30/30 event gate is not reached or the reviewed
+v1.1.5 provenance/compatibility requirements are absent. Do not invent a commit or reduce the gates
 after observing results. The official Day-5 pilot must run from a valid Git
 clone; development fixtures may use an explicit test SHA only inside tests.
 
-## Pilot profiling and scale decision v1.1.4
+## Pilot profiling and scale decision (introduced in v1.1.4)
 
 Implementation D is a decision checkpoint, not model training. It answers four
 questions before producing the expensive historical candidate:
@@ -571,12 +609,14 @@ maximum, and population standard deviation. Numerical summaries are emitted for
 every canonical attribute globally, by machine, and by scenario.
 
 The committed real reference is deliberately minimal and anonymized. Only
-canonical fields needed for this pilot are retained; the wiper-pressure example
-is recorded as ignored because it is not one of the four MVP component signals.
+canonical fields needed for this pilot are retained; wiper-suction pressure is
+recorded as ignored because it is a cleaning signal rather than the deferred
+colour-1 supply-pressure mapping.
 No host, credential, enterprise machine ID, timestamp precise enough to identify
 production, or complete operational payload is committed. The observation is
-used only to confirm known units and show whether its individual values fall
-inside or outside the synthetic pilot range.
+used only to validate source formatting and show whether its individual values
+fall inside or outside the synthetic pilot range; it does not confirm units or
+calibrate the synthetic population.
 
 ### Event prevalence and scale rules
 
@@ -609,20 +649,20 @@ experiment increases each axis by at least 25%. The possible decisions are:
 | `increase_both` | Missing event evidence and/or both machine diversity and exposure are inadequate |
 | `increase_machines` | Duration is sufficient, but split diversity is below the frozen design |
 | `increase_days` | Machine counts are sufficient, but exposure is below the conservative projection |
-| `review_parameters` | Scale alone is not the issue; units, reference ranges, or gate behavior need human review |
+| `review_parameters` | Scale alone is not the issue; reference ranges, dynamics, or gate behavior need human review |
 | `ready_for_freeze` | Current units, diversity, duration, and independent-event gates pass |
 
 The recommendation never edits YAML, lowers gates, copies events between splits,
 or promotes a dataset from `draft`. `freeze_ready` can only become true when the
-decision is `ready_for_freeze`, all event gates pass, and no source-native unit
-remains unconfirmed. Configuration changes require a separate versioned,
+decision is `ready_for_freeze`, all event gates pass, and the catalogue/unit
+contract is complete. Configuration changes require a separate versioned,
 human-approved implementation after examining these reports.
 
 ### Windows first, MacBook second
 
 Implement, lint, and run the short 1/1/1-machine pilot on Windows first. This
 quick run checks software and report semantics; it is not intended to satisfy
-event gates. Commit v1.1.4 before producing research evidence so the manifest can
+event gates. Commit v1.1.5 before producing new research evidence so the manifest can
 record the exact Git SHA. Keep the dataset and analysis outside Git.
 
 After reviewing `profile_report.md`, `profile_summary.json`,
@@ -634,10 +674,10 @@ structural or parameter defect; otherwise run a smaller adjusted pilot first.
 The implementation stays in Git and is identical on both computers—the MacBook
 is the execution device for the larger workload, not a separate code branch.
 
-When the company answers the remaining unit questions, update the unit registry
-and regenerated schemas through a new versioned change, rerun the pilot analysis,
-and only then decide whether the dataset can be frozen. The current implementation
-allows meaningful work during that waiting period without concealing uncertainty.
+The unit catalogue is now confirmed, but physical distribution and event-rate
+calibration still require human review. Run a short v1.1.5 pilot first, inspect
+its reports, and only then execute the larger MacBook candidate and decide whether
+the dataset can be frozen.
 
 ## Local Setup
 
@@ -753,9 +793,9 @@ second dependency graph, validates the frozen configuration, and runs the test
 suite. The final process uses a non-root user.
 
 ```bash
-docker build --file Dockerfile.training --tag mtex-pdm-training:1.1.4 .
-docker run --rm --cpus 2 --memory 4g mtex-pdm-training:1.1.4
-docker run --rm mtex-pdm-training:1.1.4 components-check --json
+docker build --file Dockerfile.training --tag mtex-pdm-training:1.1.5 .
+docker run --rm --cpus 2 --memory 4g mtex-pdm-training:1.1.5
+docker run --rm mtex-pdm-training:1.1.5 components-check --json
 ```
 
 The image defaults to the full `environment-check`. Its entry point is
@@ -763,7 +803,7 @@ The image defaults to the full `environment-check`. Its entry point is
 tools:
 
 ```bash
-docker run --rm --entrypoint python mtex-pdm-training:1.1.4 -m pytest
+docker run --rm --entrypoint python mtex-pdm-training:1.1.5 -m pytest
 ```
 
 ### Device-specific builds
@@ -775,7 +815,7 @@ docker buildx build \
   --platform linux/arm64 \
   --load \
   --file Dockerfile.training \
-  --tag mtex-pdm-training:1.1.4-arm64 \
+  --tag mtex-pdm-training:1.1.5-arm64 \
   .
 ```
 
@@ -786,7 +826,7 @@ docker buildx build \
   --platform linux/amd64 \
   --load \
   --file Dockerfile.training \
-  --tag mtex-pdm-training:1.1.4-amd64 \
+  --tag mtex-pdm-training:1.1.5-amd64 \
   .
 ```
 
@@ -830,7 +870,7 @@ Available now:
 - Frozen-config integrity and cross-file invariant checks.
 - Immutable operational registry for the four MVP maintenance components.
 - Cross-validation of labels, events, resets, ETA, telemetry, hidden state,
-  leakage exclusions, and the optional synthetic pressure extension.
+  leakage exclusions, TPPPS4 catalogue selection, and deferred-pressure boundary.
 - Strict CrateDB ingestion and canonical telemetry/event records.
 - Dataset, enterprise-export, feature, and model manifests.
 - Generated JSON Schemas and Arrow/Parquet physical schemas.
@@ -854,7 +894,8 @@ Available now:
 - Independent-event, censorship, intervention-delay, and preliminary 24 h/168 h prevalence reports.
 - Conservative scale recommendation against the frozen machine/day/event targets.
 - Atomic, checksummed analysis packages with optional source-dataset lineage verification.
-- Minimal anonymized real reference with both temperature units confirmed as degrees Celsius.
+- Authorised 105-attribute TPPPS4 multipass source catalogue with confirmed metadata.
+- Strict 25-code categorical machine-status dictionary and 20-field predictive telemetry contract.
 - Byte-identical repeat/checkpoint-resume tests plus semantic integrity gates.
 - Parquet and LightGBM smoke tests.
 - Reproducible, non-root ARM64/x86-64 Docker build.
@@ -862,9 +903,8 @@ Available now:
 
 Intentionally deferred to the next targets:
 
-- Confirmation of the remaining source-native units by the company.
 - Human review and versioned freeze of pilot physical ranges and degradation rates.
-- Official post-v1.1.4 Day-5 pilot using the resulting real Git commit and subsequent MacBook scale run.
+- Official post-v1.1.5 Day-5 pilot using the resulting real Git commit and subsequent MacBook scale run.
 - Full 12-machine × 180-day dataset after unit/parameter review and freeze.
 - MQTT output and wall-clock scheduling for prospective machines.
 - Complete dataset/event-volume reproducibility gate, labels, feature computation,

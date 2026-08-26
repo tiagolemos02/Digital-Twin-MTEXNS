@@ -7,6 +7,7 @@ import math
 import random
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -31,16 +32,16 @@ from mtex_pdm.generator.models import (
     StepOutcome,
     TelemetryEmission,
 )
+from mtex_pdm.telemetry_catalog import MachineStatus, load_telemetry_catalog
 
 
 class BehaviorParameters(BaseModel):
-    """Typed pilot parameters; source-native units remain unconfirmed."""
+    """Typed TPPPS4 pilot parameters with explicit physical units and assumptions."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     ambient_temperature_baseline: float = 22.0
     ambient_humidity_baseline: float = 48.0
-    pressure_baseline: float = 2.4
     print_bar_speed_mms_maximum: float = Field(default=800.0, gt=0.0)
     print_bar_speed_rpm_maximum: float = Field(default=1200.0, gt=0.0)
     transport_speed_mms_maximum: float = Field(default=700.0, gt=0.0)
@@ -50,8 +51,9 @@ class BehaviorParameters(BaseModel):
     print_bar_distance_maximum: float = Field(default=250.0, gt=0.0)
     vacuum_work_maximum: float = Field(default=144_000.0, gt=0.0)
     pump_work_maximum: float = Field(default=2_880_000.0, gt=0.0)
-    vacuum_degradation_per_active_hour: float = Field(default=1.0 / 160.0, gt=0.0)
-    pump_degradation_per_active_hour: float = Field(default=1.0 / 320.0, gt=0.0)
+    print_bar_effective_motion_fraction: float = Field(default=1.0 / 288.0, gt=0.0, le=1.0)
+    vacuum_condition_acceleration: float = Field(default=1.0, gt=0.0)
+    pump_condition_acceleration: float = Field(default=1.0, gt=0.0)
     process_noise_fraction: float = Field(default=0.04, ge=0.0)
     measurement_noise_scale: float = Field(default=0.03, ge=0.0)
     urgent_delay_min_hours: int = Field(default=1, ge=1)
@@ -74,8 +76,8 @@ class ScenarioProfile:
     intermittent: bool = False
     temperature_offset: float = 0.0
     humidity_offset: float = 0.0
-    pressure_instability: float = 0.0
     degradation_multiplier: float = 1.0
+    pump_stress_multiplier: float = 1.0
     sensor_noise_multiplier: float = 1.0
     telemetry_effect: str = "normal"
     maintenance_policy: str = "normal"
@@ -88,14 +90,14 @@ _SCENARIOS: dict[str, ScenarioProfile] = {
     "intermittent_operation": ScenarioProfile(intermittent=True),
     "temperature_stress": ScenarioProfile(temperature_offset=8.0),
     "humidity_stress": ScenarioProfile(humidity_offset=22.0),
-    "supply_pressure_drift": ScenarioProfile(pressure_instability=0.8),
+    "supply_pump_stress": ScenarioProfile(pump_stress_multiplier=1.8),
     "planned_maintenance": ScenarioProfile(maintenance_policy="planned"),
     "unseen_combined_stress": ScenarioProfile(
         production_multiplier=1.4,
         temperature_offset=7.0,
         humidity_offset=15.0,
-        pressure_instability=0.9,
         degradation_multiplier=1.8,
+        pump_stress_multiplier=1.4,
     ),
     "unseen_accelerated_degradation": ScenarioProfile(degradation_multiplier=3.0),
     "limit_reconfiguration": ScenarioProfile(distance_limit_multiplier=0.8),
@@ -106,12 +108,12 @@ _SCENARIOS: dict[str, ScenarioProfile] = {
     "prospective_calendar_wear": ScenarioProfile(),
     "prospective_intense_production": ScenarioProfile(production_multiplier=1.6),
     "prospective_temperature_stress": ScenarioProfile(temperature_offset=8.0),
-    "prospective_pressure_instability": ScenarioProfile(pressure_instability=0.9),
+    "prospective_pump_stress": ScenarioProfile(pump_stress_multiplier=1.8),
     "prospective_combined_stress": ScenarioProfile(
         production_multiplier=1.4,
         temperature_offset=7.0,
-        pressure_instability=0.9,
         degradation_multiplier=1.8,
+        pump_stress_multiplier=1.4,
     ),
     "prospective_telemetry_gap": ScenarioProfile(telemetry_effect="long_gap"),
     "prospective_maintenance_reset": ScenarioProfile(degradation_multiplier=4.0),
@@ -148,12 +150,11 @@ def _initial_observable(parameters: BehaviorParameters) -> ObservableMachineStat
     values = {name: 0.0 for name in CANONICAL_NUMERIC_ATTRIBUTES}
     values.update(
         {
-            "machine_status": 12.0,
+            "machine_status": float(MachineStatus.STANDBY),
             "ambient_temperature": parameters.ambient_temperature_baseline,
             "ambient_humidity": parameters.ambient_humidity_baseline,
             "ink_area_temperature": parameters.ambient_temperature_baseline,
             "ink_area_humidity": parameters.ambient_humidity_baseline,
-            "pressure_supply_color_1": parameters.pressure_baseline,
             "print_bar_time_since_last_pm_maximum": (parameters.print_bar_calendar_maximum),
             "print_bar_traveled_distance_since_last_pm_maximum": (
                 parameters.print_bar_distance_maximum
@@ -228,7 +229,7 @@ def _telemetry_emissions(
     if effect == "invalid_burst" and 8 <= phase < 10:
         measured = measured.with_value("ambient_temperature", -999.0)
     elif effect == "sensor_missing":
-        measured = measured.without("pressure_supply_color_1")
+        measured = measured.without("ambient_humidity")
     if effect == "duplicate":
         emission = TelemetryEmission(time_index=context.time_index, observable=measured)
         return (emission, emission)
@@ -418,7 +419,7 @@ def _apply_maintenance(
             updated_components.append(component)
 
     if performed_any:
-        reset_values["machine_status"] = 11.0
+        reset_values["machine_status"] = float(MachineStatus.MAINTENANCE)
     process = process.with_values(reset_values)
     hidden = hidden.model_copy(
         update={
@@ -429,11 +430,62 @@ def _apply_maintenance(
     return process, hidden, tuple(events)
 
 
+def _operating_status(context: StepContext, profile: ScenarioProfile) -> MachineStatus:
+    """Return a categorical TPPPS4 state without treating status codes as ordinal."""
+
+    hour = context.time_index.hour
+    if not 6 <= hour < 22:
+        if hour in {5, 22}:
+            return MachineStatus.STANDBY
+        return MachineStatus.SHUTDOWN
+
+    if profile.intermittent and (context.step_index // 2) % 2 != 0:
+        return MachineStatus.PAUSED
+    if context.step_seconds > 15 * 60:
+        return MachineStatus.PRINTING
+
+    steps_per_hour = max(4, 3600 // context.step_seconds)
+    phase = context.step_index % steps_per_hour
+    if phase == 0:
+        return MachineStatus.PREPARING_TO_PRINT
+    if phase == 1:
+        return MachineStatus.READY_TO_PRINT
+    if phase >= steps_per_hour - 2:
+        return MachineStatus.PAUSED
+    return MachineStatus.PRINTING
+
+
 class MachineBehavior:
     """State transition with causal operation, environment, counters, and wear."""
 
     def __init__(self, parameters: BehaviorParameters | None = None) -> None:
         self.parameters = parameters or BehaviorParameters()
+
+    def validate_catalog_alignment(self, config_directory: str | Path | None = None) -> None:
+        """Fail before generation when behavior maxima diverge from the frozen catalog."""
+
+        catalog = load_telemetry_catalog(config_directory)
+        maxima = catalog.mvp_selection.derived_maximum_attributes
+        expected = {
+            "print_bar_calendar_maximum": maxima[
+                "print_bar_time_since_last_pm_maximum"
+            ].official_maximum,
+            "print_bar_distance_maximum": maxima[
+                "print_bar_traveled_distance_since_last_pm_maximum"
+            ].official_maximum,
+            "vacuum_work_maximum": maxima[
+                "transport_vacuum_work_time_since_last_air_filter_pm_maximum"
+            ].official_maximum,
+            "pump_work_maximum": maxima[
+                "pump_supply_color_1_work_time_since_replacement_maximum"
+            ].official_maximum,
+        }
+        actual = {name: getattr(self.parameters, name) for name in expected}
+        if actual != expected:
+            raise ValueError(
+                "behavior maxima do not match frozen TPPPS4 catalog: "
+                f"expected={expected}, actual={actual}"
+            )
 
     @property
     def fingerprint(self) -> str:
@@ -441,7 +493,7 @@ class MachineBehavior:
 
         return canonical_sha256(
             {
-                "behavior_version": "pilot-1.1.2",
+                "behavior_version": "pilot-1.1.5",
                 "parameters": self.parameters.model_dump(mode="json"),
                 "scenarios": {
                     scenario_id: asdict(profile)
@@ -473,10 +525,8 @@ class MachineBehavior:
             raise ValueError("mqtt_prospective machines require a prospective scenario")
         current = _merge_initial_state(state, self.parameters)
         step_hours = context.step_seconds / 3600.0
-        active = 6 <= context.time_index.hour < 22
-        if profile.intermittent:
-            active = active and (context.step_index // 2) % 2 == 0
-        machine_status = 203.0 if active else 12.0
+        machine_status = _operating_status(context, profile)
+        active = machine_status is MachineStatus.PRINTING
 
         previous_requested = _value(current.observable, "copies_requested")
         previous_printed = _value(current.observable, "copies_printed")
@@ -500,22 +550,28 @@ class MachineBehavior:
         load = profile.production_multiplier if active else 0.0
         print_target = self.parameters.print_bar_speed_mms_maximum * 0.72 * load
         transport_target = self.parameters.transport_speed_mms_maximum * 0.76 * load
-        print_mms = max(
-            0.0,
-            _mean_revert(
-                _value(current.observable, "speed_mms_print_bar"),
-                print_target,
-                0.35,
-                rng.gauss(0.0, 0.3),
+        print_mms = min(
+            self.parameters.print_bar_speed_mms_maximum,
+            max(
+                0.0,
+                _mean_revert(
+                    _value(current.observable, "speed_mms_print_bar"),
+                    print_target,
+                    0.35,
+                    rng.gauss(0.0, 0.3),
+                ),
             ),
         )
-        transport_mms = max(
-            0.0,
-            _mean_revert(
-                _value(current.observable, "speed_mms_transport"),
-                transport_target,
-                0.35,
-                rng.gauss(0.0, 0.3),
+        transport_mms = min(
+            self.parameters.transport_speed_mms_maximum,
+            max(
+                0.0,
+                _mean_revert(
+                    _value(current.observable, "speed_mms_transport"),
+                    transport_target,
+                    0.35,
+                    rng.gauss(0.0, 0.3),
+                ),
             ),
         )
         print_rpm = min(
@@ -580,19 +636,6 @@ class MachineBehavior:
                 ),
             ),
         )
-        elapsed_hours = context.step_index * step_hours
-        bounded_pressure_drift = profile.pressure_instability * (
-            0.65 * math.sin(2.0 * math.pi * elapsed_hours / 24.0)
-            + 0.35 * math.sin(2.0 * math.pi * elapsed_hours / (24.0 * 7.0))
-        )
-        pressure_target = self.parameters.pressure_baseline + bounded_pressure_drift
-        pressure = _mean_revert(
-            _value(current.observable, "pressure_supply_color_1"),
-            pressure_target,
-            0.10,
-            rng.gauss(0.0, 0.01 + profile.pressure_instability * 0.03),
-        )
-
         distance_maximum = _value(
             current.observable,
             "print_bar_traveled_distance_since_last_pm_maximum",
@@ -604,12 +647,17 @@ class MachineBehavior:
 
         calendar_counter = min(
             self.parameters.print_bar_calendar_maximum,
-            _value(current.observable, "print_bar_time_since_last_pm") + step_hours,
+            _value(current.observable, "print_bar_time_since_last_pm") + step_hours / 24.0,
+        )
+        effective_motion_seconds = (
+            context.step_seconds * self.parameters.print_bar_effective_motion_fraction
+            if active
+            else 0.0
         )
         distance_counter = min(
             distance_maximum,
             _value(current.observable, "print_bar_traveled_distance_since_last_pm")
-            + (print_mms / self.parameters.print_bar_speed_mms_maximum) * 10.0 * step_hours,
+            + print_mms * effective_motion_seconds / 1000.0,
         )
         active_seconds = float(context.step_seconds if active else 0)
         vacuum_counter = min(
@@ -627,7 +675,7 @@ class MachineBehavior:
         )
         process = current.observable.with_values(
             {
-                "machine_status": machine_status,
+                "machine_status": float(machine_status),
                 "copies_requested": requested,
                 "copies_printed": printed,
                 "ambient_temperature": ambient_temperature,
@@ -638,7 +686,6 @@ class MachineBehavior:
                 "speed_rpm_print_bar": print_rpm,
                 "speed_mms_transport": transport_mms,
                 "speed_rpm_transport": transport_rpm,
-                "pressure_supply_color_1": pressure,
                 "print_bar_time_since_last_pm": calendar_counter,
                 "print_bar_traveled_distance_since_last_pm": distance_counter,
                 "transport_vacuum_work_time_since_last_air_filter_pm": vacuum_counter,
@@ -666,27 +713,29 @@ class MachineBehavior:
                     * (1.0 + max(0.0, profile.production_multiplier - 1.0) * 0.35)
                 )
                 degradation = component.degradation + (
-                    self.parameters.vacuum_degradation_per_active_hour
-                    * step_hours
-                    * (1.0 if active else 0.0)
+                    active_seconds
+                    / self.parameters.vacuum_work_maximum
+                    * self.parameters.vacuum_condition_acceleration
                     * stress
                     * max(0.2, 1.0 + rng.gauss(0.0, self.parameters.process_noise_fraction))
                 )
                 cause = "vacuum_work_and_environment"
             else:
                 temperature_stress = max(0.0, ink_temperature - 27.0) / 20.0
-                pressure_stress = abs(pressure - self.parameters.pressure_baseline) / 2.0
-                stress = profile.degradation_multiplier * (
-                    1.0 + temperature_stress + pressure_stress
+                production_stress = max(0.0, profile.production_multiplier - 1.0) * 0.35
+                stress = (
+                    profile.degradation_multiplier
+                    * profile.pump_stress_multiplier
+                    * (1.0 + temperature_stress + production_stress)
                 )
                 degradation = component.degradation + (
-                    self.parameters.pump_degradation_per_active_hour
-                    * step_hours
-                    * (1.0 if active else 0.0)
+                    active_seconds
+                    / self.parameters.pump_work_maximum
+                    * self.parameters.pump_condition_acceleration
                     * stress
                     * max(0.2, 1.0 + rng.gauss(0.0, self.parameters.process_noise_fraction))
                 )
-                cause = "pump_work_temperature_pressure"
+                cause = "pump_work_temperature_production"
             updated_hidden.append(
                 component.model_copy(
                     update={
@@ -732,8 +781,6 @@ class MachineBehavior:
                     0.0,
                     transport_mms + measurement_rng.gauss(0.0, measurement_scale * 10.0),
                 ),
-                "pressure_supply_color_1": pressure
-                + measurement_rng.gauss(0.0, measurement_scale * 0.1),
             }
         )
         return StepOutcome(

@@ -22,6 +22,7 @@ from mtex_pdm.generator import (
     assemble_maintenance_events,
     supported_scenario_ids,
 )
+from mtex_pdm.telemetry_catalog import MachineStatus
 
 ML_ROOT = Path(__file__).resolve().parents[1]
 
@@ -68,11 +69,17 @@ def test_normal_operation_produces_complete_coherent_machine_state() -> None:
 
     first = output.telemetry[0].observable
     assert {signal.name for signal in first.numeric_signals} == set(CANONICAL_NUMERIC_ATTRIBUTES)
-    assert _value(output, 0, "machine_status") == 203.0
-    assert _value(output, 0, "copies_requested") > 0.0
-    assert _value(output, 0, "copies_printed") > 0.0
-    assert _value(output, 0, "speed_mms_print_bar") > 0.0
-    assert _value(output, 0, "speed_mms_transport") > 0.0
+    statuses = {_value(output, index, "machine_status") for index in range(len(output.telemetry))}
+    assert statuses == {
+        float(MachineStatus.PREPARING_TO_PRINT),
+        float(MachineStatus.READY_TO_PRINT),
+        float(MachineStatus.PRINTING),
+        float(MachineStatus.PAUSED),
+    }
+    assert max(_value(output, index, "copies_requested") for index in range(12)) > 0.0
+    assert max(_value(output, index, "copies_printed") for index in range(12)) > 0.0
+    assert max(_value(output, index, "speed_mms_print_bar") for index in range(12)) > 0.0
+    assert max(_value(output, index, "speed_mms_transport") for index in range(12)) > 0.0
     assert _value(output, 0, "print_bar_time_since_last_pm_maximum") == 90.0
     assert _value(output, 0, "print_bar_traveled_distance_since_last_pm_maximum") == 250.0
     assert _value(output, -1, "print_bar_time_since_last_pm") > _value(
@@ -81,6 +88,20 @@ def test_normal_operation_produces_complete_coherent_machine_state() -> None:
     assert _value(output, -1, "copies_printed") <= _value(output, -1, "copies_requested")
     assert len(output.ground_truth[-1].hidden.components) == 4
     assert output.events == ()
+
+
+def test_calendar_uses_days_and_distance_only_advances_while_printing() -> None:
+    active = _run_scenario("normal_operation", ticks=12)
+    inactive = _run_scenario(
+        "normal_operation",
+        start_at=datetime(2026, 1, 5, 2, 0, tzinfo=UTC),
+        ticks=12,
+    )
+
+    assert _value(active, -1, "print_bar_time_since_last_pm") == pytest.approx(1.0 / 24.0)
+    assert _value(inactive, -1, "print_bar_time_since_last_pm") == pytest.approx(1.0 / 24.0)
+    assert _value(active, -1, "print_bar_traveled_distance_since_last_pm") > 0.0
+    assert _value(inactive, -1, "print_bar_traveled_distance_since_last_pm") == 0.0
 
 
 def test_sensor_noise_changes_measurements_without_changing_hidden_process() -> None:
@@ -133,7 +154,7 @@ def test_limit_reconfiguration_changes_only_after_the_scheduled_boundary() -> No
 def test_due_event_is_emitted_once_then_intervention_resets_only_that_component() -> None:
     initial_state = MachineState(
         observable=ObservableMachineState(
-            numeric_signals=(NumericSignal(name="print_bar_time_since_last_pm", value=89.5),)
+            numeric_signals=(NumericSignal(name="print_bar_time_since_last_pm", value=89.99),)
         )
     )
     behavior = MachineBehavior(
@@ -160,7 +181,7 @@ def test_due_event_is_emitted_once_then_intervention_resets_only_that_component(
     assert output.events[0].occurred_at == datetime(2026, 1, 5, 8, 0, tzinfo=UTC)
     assert output.events[1].occurred_at == datetime(2026, 1, 5, 9, 0, tzinfo=UTC)
     assert _value(output, 1, "print_bar_time_since_last_pm") == 0.0
-    assert _value(output, 2, "print_bar_time_since_last_pm") == 1.0
+    assert _value(output, 2, "print_bar_time_since_last_pm") == pytest.approx(1.0 / 24.0)
     assert _value(output, 1, "print_bar_traveled_distance_since_last_pm") > _value(
         output, 0, "print_bar_traveled_distance_since_last_pm"
     )
@@ -169,7 +190,7 @@ def test_due_event_is_emitted_once_then_intervention_resets_only_that_component(
 def test_runtime_markers_assemble_completed_and_censored_lifecycles() -> None:
     initial_state = MachineState(
         observable=ObservableMachineState(
-            numeric_signals=(NumericSignal(name="print_bar_time_since_last_pm", value=89.5),)
+            numeric_signals=(NumericSignal(name="print_bar_time_since_last_pm", value=89.99),)
         )
     )
     completed_output = _run_scenario(
@@ -238,12 +259,9 @@ def test_operation_scenarios_change_load_and_component_use_in_expected_direction
 def test_physical_stress_scenarios_raise_relevant_signals_and_hidden_wear() -> None:
     normal = _run_scenario("normal_operation", ticks=96)
     hot = _run_scenario("temperature_stress", ticks=96)
-    pressure = _run_scenario("supply_pressure_drift", ticks=96)
+    pump_stress = _run_scenario("supply_pump_stress", ticks=96)
 
     assert _value(hot, -1, "ambient_temperature") > _value(normal, -1, "ambient_temperature")
-    assert abs(_value(pressure, -1, "pressure_supply_color_1") - 2.4) > abs(
-        _value(normal, -1, "pressure_supply_color_1") - 2.4
-    )
     normal_pump = next(
         component
         for component in normal.ground_truth[-1].hidden.components
@@ -254,24 +272,35 @@ def test_physical_stress_scenarios_raise_relevant_signals_and_hidden_wear() -> N
         for component in hot.ground_truth[-1].hidden.components
         if component.component_key is ComponentKey.SUPPLY_PUMP_COLOR_1
     )
-    pressure_pump = next(
+    stressed_pump = next(
         component
-        for component in pressure.ground_truth[-1].hidden.components
+        for component in pump_stress.ground_truth[-1].hidden.components
         if component.component_key is ComponentKey.SUPPLY_PUMP_COLOR_1
     )
     assert hot_pump.degradation > normal_pump.degradation
-    assert pressure_pump.degradation > normal_pump.degradation
+    assert stressed_pump.degradation > normal_pump.degradation
 
 
-def test_supply_pressure_drift_remains_bounded_over_a_multi_day_history() -> None:
-    output = _run_scenario("supply_pressure_drift", ticks=7 * 24 * 12)
+def test_condition_wear_is_anchored_to_the_official_work_time_maximum() -> None:
+    output = _run_scenario(
+        "normal_operation",
+        ticks=1,
+        step_seconds=3600,
+        behavior=MachineBehavior(BehaviorParameters(process_noise_fraction=0.0)),
+    )
 
-    pressures = [
-        snapshot.observable.value("pressure_supply_color_1") for snapshot in output.telemetry
-    ]
-    assert all(pressure is not None for pressure in pressures)
-    assert min(pressure for pressure in pressures if pressure is not None) > 0.5
-    assert max(pressure for pressure in pressures if pressure is not None) < 4.5
+    vacuum = next(
+        component
+        for component in output.ground_truth[-1].hidden.components
+        if component.component_key is ComponentKey.TRANSPORT_VACUUM_FILTER
+    )
+    pump = next(
+        component
+        for component in output.ground_truth[-1].hidden.components
+        if component.component_key is ComponentKey.SUPPLY_PUMP_COLOR_1
+    )
+    assert vacuum.degradation == pytest.approx(3_600 / 144_000)
+    assert pump.degradation == pytest.approx(3_600 / 2_880_000)
 
 
 def test_condition_event_uses_hidden_threshold_and_urgent_delay() -> None:
@@ -281,7 +310,8 @@ def test_condition_event_uses_hidden_threshold_and_urgent_delay() -> None:
         step_seconds=3600,
         behavior=MachineBehavior(
             BehaviorParameters(
-                vacuum_degradation_per_active_hour=1.0,
+                vacuum_condition_acceleration=40.0,
+                process_noise_fraction=0.0,
                 urgent_delay_min_hours=1,
                 urgent_delay_max_hours=1,
             )
@@ -350,7 +380,7 @@ def test_observation_scenarios_keep_invalid_missing_duplicate_and_delay_distinct
     delayed = _run_scenario("telemetry_delayed", ticks=2, split=DatasetSplit.TEST)
 
     assert _value(invalid, 8, "ambient_temperature") == -999.0
-    assert missing.telemetry[0].observable.value("pressure_supply_color_1") is None
+    assert missing.telemetry[0].observable.value("ambient_humidity") is None
     assert len(duplicate.telemetry) == 4
     assert len(duplicate.ground_truth) == 2
     assert delayed.telemetry[0].time_index == delayed.telemetry[1].time_index
@@ -363,7 +393,7 @@ def test_delayed_intervention_latches_one_due_event_without_reset() -> None:
         step_seconds=3600,
         initial_state=MachineState(
             observable=ObservableMachineState(
-                numeric_signals=(NumericSignal(name="print_bar_time_since_last_pm", value=89.5),)
+                numeric_signals=(NumericSignal(name="print_bar_time_since_last_pm", value=89.99),)
             )
         ),
     )

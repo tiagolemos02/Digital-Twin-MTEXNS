@@ -32,20 +32,29 @@ CRATEDB_REQUIRED_NUMERIC_ATTRIBUTES = (
     "speed_rpm_transport",
 )
 
-CANONICAL_NUMERIC_ATTRIBUTES = (
-    *CRATEDB_REQUIRED_NUMERIC_ATTRIBUTES,
-    "pressure_supply_color_1",
-)
+CANONICAL_NUMERIC_ATTRIBUTES = (*CRATEDB_REQUIRED_NUMERIC_ATTRIBUTES,)
 
 ATTRIBUTE_UNITS: dict[str, str] = {
-    attribute: "source_native_unconfirmed" for attribute in CANONICAL_NUMERIC_ATTRIBUTES
+    "machine_status": "status_code",
+    "copies_requested": "count",
+    "copies_printed": "count",
+    "ambient_temperature": "degC",
+    "ambient_humidity": "%",
+    "ink_area_temperature": "degC",
+    "ink_area_humidity": "%",
+    "print_bar_time_since_last_pm": "d",
+    "print_bar_time_since_last_pm_maximum": "d",
+    "print_bar_traveled_distance_since_last_pm": "m",
+    "print_bar_traveled_distance_since_last_pm_maximum": "m",
+    "transport_vacuum_work_time_since_last_air_filter_pm": "s",
+    "transport_vacuum_work_time_since_last_air_filter_pm_maximum": "s",
+    "pump_supply_color_1_work_time_since_replacement": "s",
+    "pump_supply_color_1_work_time_since_replacement_maximum": "s",
+    "speed_mms_print_bar": "mm/s",
+    "speed_rpm_print_bar": "rpm",
+    "speed_mms_transport": "mm/s",
+    "speed_rpm_transport": "rpm",
 }
-ATTRIBUTE_UNITS.update(
-    {
-        "ambient_temperature": "degC",
-        "ink_area_temperature": "degC",
-    }
-)
 
 
 class _ImmutableModel(BaseModel):
@@ -177,6 +186,7 @@ def _telemetry_arrow_schema() -> pa.Schema:
         b"timezone": b"UTC",
         b"source.cratedb.numeric": b"REAL",
         b"canonical.parquet.numeric": b"float64",
+        b"semantic.machine_status": b"categorical_code",
         **{
             f"unit.{attribute}".encode(): unit.encode()
             for attribute, unit in ATTRIBUTE_UNITS.items()

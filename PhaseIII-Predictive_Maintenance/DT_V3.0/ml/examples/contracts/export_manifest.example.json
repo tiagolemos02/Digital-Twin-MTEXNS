@@ -15,7 +15,7 @@
   "requested_end_time": "2026-03-29T00:00:00Z",
   "requested_start_time": "2026-03-01T00:00:00Z",
   "row_count": 8064,
-  "schema_version": "1.0.0",
+  "schema_version": "1.1.0",
   "status": "partial",
   "upper_watermark": "2026-03-29T00:00:00Z"
 }

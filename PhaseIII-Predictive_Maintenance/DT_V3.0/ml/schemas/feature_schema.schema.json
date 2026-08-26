@@ -84,7 +84,7 @@
       "type": "object"
     }
   },
-  "$id": "https://mtex.local/schemas/v1/feature_schema.schema.json",
+  "$id": "https://mtex.local/schemas/v1.1/feature_schema.schema.json",
   "additionalProperties": false,
   "properties": {
     "feature_set_id": {
@@ -122,8 +122,8 @@
       "type": "array"
     },
     "schema_version": {
-      "const": "1.0.0",
-      "default": "1.0.0",
+      "const": "1.1.0",
+      "default": "1.1.0",
       "title": "Schema Version",
       "type": "string"
     },

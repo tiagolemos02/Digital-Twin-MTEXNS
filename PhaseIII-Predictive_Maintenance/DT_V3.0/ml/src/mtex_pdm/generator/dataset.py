@@ -512,6 +512,14 @@ def _write_report(
     report: dict[str, Any] = {
         "dataset_id": dataset_id,
         "generator_version": __version__,
+        "machine_profile": "TPPPS4",
+        "print_architecture": "multipass",
+        "telemetry_catalog_version": "1.0.0",
+        "synthetic_assumptions": [
+            "print_bar_effective_motion_is_time_compressed",
+            "condition_events_are_synthetic_and_anchored_to_official_maxima",
+            "momentary_enterprise_snapshot_does_not_calibrate_distributions",
+        ],
         "status": ArtifactStatus.DRAFT.value,
         "tick_count": summary.tick_count,
         "machine_count": summary.machine_count,
@@ -535,9 +543,10 @@ def _write_report(
         "missing_value_count": dict(sorted(output.missing_values.items())),
         "duplicate_timestamp_count": output.duplicate_timestamp_count,
         "limitations": [
-            "pilot physical ranges and source-native units remain unconfirmed",
+            "operating distributions and time-compression rates remain synthetic",
             "draft datasets do not assert the final 100/30/30 event-volume gate",
             "synthetic results do not establish industrial predictive performance",
+            "version 1.1.4 pilots are superseded for maintenance-prevalence conclusions",
         ],
     }
     report_path = staging_path / "reports" / "generation_report.json"
@@ -569,6 +578,8 @@ def generate_synthetic_dataset(
 ) -> DatasetGenerationReceipt:
     """Generate, validate, and atomically publish one deterministic draft dataset."""
 
+    validate_frozen_config(config_directory)
+    behavior.validate_catalog_alignment(config_directory)
     output = ParquetDatasetOutput(output_root=output_root, dataset_id=dataset_id)
     GeneratorEngine(config, transition=behavior).run(output)
     return output.finalize(
@@ -613,7 +624,7 @@ def generate_pilot_dataset(
             "intermittent_operation",
             "temperature_stress",
             "humidity_stress",
-            "supply_pressure_drift",
+            "supply_pump_stress",
             "planned_maintenance",
         ),
         DatasetSplit.VALIDATION: (
@@ -621,7 +632,7 @@ def generate_pilot_dataset(
             "intermittent_operation",
             "temperature_stress",
             "humidity_stress",
-            "supply_pressure_drift",
+            "supply_pump_stress",
             "planned_maintenance",
             "normal_operation",
         ),
@@ -629,7 +640,7 @@ def generate_pilot_dataset(
             "intermittent_operation",
             "temperature_stress",
             "humidity_stress",
-            "supply_pressure_drift",
+            "supply_pump_stress",
             "planned_maintenance",
             "normal_operation",
             "high_production",

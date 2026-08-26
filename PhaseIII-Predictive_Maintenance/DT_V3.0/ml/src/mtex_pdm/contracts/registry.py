@@ -12,7 +12,9 @@ from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
+from mtex_pdm.config_validation import validate_frozen_config
 from mtex_pdm.contracts.models import (
+    CONTRACT_VERSION,
     ArtifactFile,
     CrateTelemetryRow,
     DatasetManifest,
@@ -29,6 +31,7 @@ from mtex_pdm.contracts.tabular import (
     arrow_schema_descriptor,
     validate_cratedb_schema,
 )
+from mtex_pdm.telemetry_catalog import collect_telemetry_catalog_report
 
 _SCHEMA_MODELS: dict[str, type[BaseModel]] = {
     "crate_telemetry_row.schema.json": CrateTelemetryRow,
@@ -137,7 +140,7 @@ def _schema_documents() -> dict[str, bytes]:
     documents = {
         name: _json_document(
             {
-                "$id": f"https://mtex.local/schemas/v1/{name}",
+                "$id": f"https://mtex.local/schemas/v1.1/{name}",
                 **model.model_json_schema(mode="validation"),
             }
         )
@@ -227,11 +230,18 @@ def validate_contract_bundle(
     schemas_dir: Path,
     examples_dir: Path | None = None,
     crate_schema_path: Path | None = None,
+    config_directory: Path | None = None,
 ) -> dict[str, Any]:
     """Verify checked-in schemas, checksums, examples, and an optional live snapshot."""
 
     expected = _schema_documents()
     errors: list[str] = []
+    telemetry_catalog: dict[str, object] | None = None
+    try:
+        validate_frozen_config(config_directory)
+        telemetry_catalog = collect_telemetry_catalog_report(config_directory)
+    except (OSError, ValueError) as error:
+        errors.append(f"invalid TPPPS4 telemetry catalog: {error}")
     for name, content in expected.items():
         path = schemas_dir / name
         if not path.is_file():
@@ -278,9 +288,10 @@ def validate_contract_bundle(
 
     return {
         "healthy": not errors,
-        "contract_version": "1.0.0",
+        "contract_version": CONTRACT_VERSION,
         "schema_count": len(expected),
         "example_count": example_count,
         "crate_schema": crate_report,
+        "telemetry_catalog": telemetry_catalog,
         "errors": errors,
     }

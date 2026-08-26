@@ -22,8 +22,21 @@ from pydantic import (
     model_validator,
 )
 
-CONTRACT_VERSION: Literal["1.0.0"] = "1.0.0"
-CONFIG_VERSION: Literal["1.0.0"] = "1.0.0"
+from mtex_pdm.telemetry_catalog import machine_status_name
+
+CONTRACT_VERSION: Literal["1.1.0"] = "1.1.0"
+CONFIG_VERSION: Literal["1.1.0"] = "1.1.0"
+
+SyntheticAssumption = Literal[
+    "print_bar_effective_motion_is_time_compressed",
+    "condition_events_are_synthetic_and_anchored_to_official_maxima",
+    "momentary_enterprise_snapshot_does_not_calibrate_distributions",
+]
+DEFAULT_SYNTHETIC_ASSUMPTIONS: tuple[SyntheticAssumption, ...] = (
+    "print_bar_effective_motion_is_time_compressed",
+    "condition_events_are_synthetic_and_anchored_to_official_maxima",
+    "momentary_enterprise_snapshot_does_not_calibrate_distributions",
+)
 
 Identifier = Annotated[
     str,
@@ -162,13 +175,19 @@ class CrateTelemetryRow(ContractModel):
     speed_rpm_print_bar: FiniteFloat | None = None
     speed_mms_transport: FiniteFloat | None = None
     speed_rpm_transport: FiniteFloat | None = None
-    pressure_supply_color_1: FiniteFloat | None = None
+
+    @field_validator("machine_status")
+    @classmethod
+    def validate_machine_status(cls, value: float | None) -> float | None:
+        if value is not None:
+            machine_status_name(value)
+        return value
 
 
 class TelemetryRecord(ContractModel):
     """Canonical, privacy-safe row used after source ingestion."""
 
-    schema_version: Literal["1.0.0"] = CONTRACT_VERSION
+    schema_version: Literal["1.1.0"] = CONTRACT_VERSION
     machine_id: Identifier
     time_index: UTCDateTime
     data_source: DataSource
@@ -193,12 +212,18 @@ class TelemetryRecord(ContractModel):
     speed_rpm_print_bar: FiniteFloat | None = None
     speed_mms_transport: FiniteFloat | None = None
     speed_rpm_transport: FiniteFloat | None = None
-    pressure_supply_color_1: FiniteFloat | None = None
 
     @field_validator("time_index")
     @classmethod
     def normalize_time_index(cls, value: datetime) -> datetime:
         return value.astimezone(UTC)
+
+    @field_validator("machine_status")
+    @classmethod
+    def validate_machine_status(cls, value: float | None) -> float | None:
+        if value is not None:
+            machine_status_name(value)
+        return value
 
     @model_validator(mode="after")
     def validate_source_split(self) -> TelemetryRecord:
@@ -247,7 +272,7 @@ def parse_cratedb_telemetry(
 class MaintenanceEvent(ContractModel):
     """One independent maintenance due/performed lifecycle."""
 
-    schema_version: Literal["1.0.0"] = CONTRACT_VERSION
+    schema_version: Literal["1.1.0"] = CONTRACT_VERSION
     event_id: Identifier
     machine_id: Identifier
     component_key: ComponentKey
@@ -349,9 +374,13 @@ class DatasetSplitSummary(ContractModel):
 
 
 class DatasetManifest(ContractModel):
-    schema_version: Literal["1.0.0"] = CONTRACT_VERSION
+    schema_version: Literal["1.1.0"] = CONTRACT_VERSION
     dataset_id: Identifier
-    config_version: Literal["1.0.0"] = CONFIG_VERSION
+    config_version: Literal["1.1.0"] = CONFIG_VERSION
+    machine_profile: Literal["TPPPS4"] = "TPPPS4"
+    print_architecture: Literal["multipass"] = "multipass"
+    telemetry_catalog_version: Literal["1.0.0"] = "1.0.0"
+    synthetic_assumptions: tuple[SyntheticAssumption, ...] = DEFAULT_SYNTHETIC_ASSUMPTIONS
     generator_version: SemVer
     code_commit: GitCommit
     created_at: UTCDateTime
@@ -376,6 +405,8 @@ class DatasetManifest(ContractModel):
 
     @model_validator(mode="after")
     def validate_dataset(self) -> DatasetManifest:
+        if self.synthetic_assumptions != DEFAULT_SYNTHETIC_ASSUMPTIONS:
+            raise ValueError("dataset manifest must preserve the frozen synthetic assumptions")
         if self.end_time <= self.start_time:
             raise ValueError("end_time must be later than start_time")
         if set(self.splits) != {
@@ -421,9 +452,10 @@ class DatasetManifest(ContractModel):
                 "decision_policy.yaml",
                 "mvp.yaml",
                 "scenarios.yaml",
+                "tppps4_telemetry_catalog.json",
             }
             if set(self.config_checksums) != expected_configs:
-                raise ValueError("complete datasets require all four frozen config checksums")
+                raise ValueError("complete datasets require all five frozen config checksums")
             numeric_unit_fields = set(_TELEMETRY_FIELDS).difference({"iamalive"})
             if not numeric_unit_fields.issubset(self.units) or "time_index" not in self.units:
                 raise ValueError(
@@ -436,7 +468,7 @@ class DatasetManifest(ContractModel):
 
 
 class ExportManifest(ContractModel):
-    schema_version: Literal["1.0.0"] = CONTRACT_VERSION
+    schema_version: Literal["1.1.0"] = CONTRACT_VERSION
     export_id: Identifier
     requested_start_time: UTCDateTime
     requested_end_time: UTCDateTime
@@ -523,7 +555,7 @@ FORBIDDEN_FEATURE_NAMES = frozenset(
 
 
 class FeatureSchema(ContractModel):
-    schema_version: Literal["1.0.0"] = CONTRACT_VERSION
+    schema_version: Literal["1.1.0"] = CONTRACT_VERSION
     feature_set_id: Identifier
     target: Literal["maintenanceNeedProbability"]
     horizons_hours: tuple[Literal[24, 168], Literal[24, 168]]
@@ -546,7 +578,7 @@ class FeatureSchema(ContractModel):
 
 
 class ModelManifest(ContractModel):
-    schema_version: Literal["1.0.0"] = CONTRACT_VERSION
+    schema_version: Literal["1.1.0"] = CONTRACT_VERSION
     model_version: SemVer
     dataset_id: Identifier
     generator_version: SemVer

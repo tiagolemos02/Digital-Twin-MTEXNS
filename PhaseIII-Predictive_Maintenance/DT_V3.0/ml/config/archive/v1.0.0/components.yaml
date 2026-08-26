@@ -1,4 +1,4 @@
-config_version: "1.1.0"
+config_version: "1.0.0"
 
 label_contract:
   target: maintenance_due_within_horizon
@@ -103,16 +103,24 @@ components:
     reset_rule: ground_truth_maintenance_event_resets_hidden_degradation
     component_attributes:
       - pump_supply_color_1_work_time_since_replacement
+      - pressure_supply_color_1
     contextual_attributes:
       - machine_status
       - copies_printed
       - ink_area_temperature
       - ink_area_humidity
+    synthetic_extensions:
+      - attribute: pressure_supply_color_1
+        type: Number
+        purpose: Observable supply-pump pressure for the predictive simulator
+        present_in_esp32_simulator: false
+        required_for_real_shadow: false
     hidden_state:
       published_to_mqtt: false
       permitted_in_features: false
       drivers:
         - pump_work_time
+        - pressure_instability
         - temperature_stress
         - production_load
         - process_noise

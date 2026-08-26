@@ -12,7 +12,7 @@
   ],
   "created_at": "2026-03-29T02:00:00Z",
   "dataset_id": "synthetic-history-v1",
-  "feature_schema_hash": "6d73fd6d616fc53348014b3d01a5eace63ce707bd517669bda8e5a918981c272",
+  "feature_schema_hash": "3a138f84e10a958ce0ace97d13f538011d0d47d56298d0541aa9e7c962d3c3a7",
   "files": [],
   "generator_version": "1.0.0",
   "horizons_hours": [
@@ -27,7 +27,7 @@
     "validation_recall_24h": 0.8
   },
   "model_version": "1.0.0",
-  "schema_version": "1.0.0",
+  "schema_version": "1.1.0",
   "seeds": {
     "training": 20260729
   },

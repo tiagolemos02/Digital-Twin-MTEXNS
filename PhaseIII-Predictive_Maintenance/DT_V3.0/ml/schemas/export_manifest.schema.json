@@ -54,7 +54,7 @@
       "type": "object"
     }
   },
-  "$id": "https://mtex.local/schemas/v1/export_manifest.schema.json",
+  "$id": "https://mtex.local/schemas/v1.1/export_manifest.schema.json",
   "additionalProperties": false,
   "properties": {
     "actual_end_time": {
@@ -150,8 +150,8 @@
       "type": "integer"
     },
     "schema_version": {
-      "const": "1.0.0",
-      "default": "1.0.0",
+      "const": "1.1.0",
+      "default": "1.1.0",
       "title": "Schema Version",
       "type": "string"
     },

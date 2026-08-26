@@ -64,7 +64,7 @@
       "type": "string"
     }
   },
-  "$id": "https://mtex.local/schemas/v1/model_manifest.schema.json",
+  "$id": "https://mtex.local/schemas/v1.1/model_manifest.schema.json",
   "additionalProperties": false,
   "properties": {
     "architecture": {
@@ -156,8 +156,8 @@
       "type": "string"
     },
     "schema_version": {
-      "const": "1.0.0",
-      "default": "1.0.0",
+      "const": "1.1.0",
+      "default": "1.1.0",
       "title": "Schema Version",
       "type": "string"
     },

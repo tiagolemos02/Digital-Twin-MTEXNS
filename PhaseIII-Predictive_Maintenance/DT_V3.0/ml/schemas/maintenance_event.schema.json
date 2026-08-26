@@ -19,7 +19,7 @@
       "type": "string"
     }
   },
-  "$id": "https://mtex.local/schemas/v1/maintenance_event.schema.json",
+  "$id": "https://mtex.local/schemas/v1.1/maintenance_event.schema.json",
   "additionalProperties": false,
   "description": "One independent maintenance due/performed lifecycle.",
   "properties": {
@@ -76,8 +76,8 @@
       "type": "string"
     },
     "schema_version": {
-      "const": "1.0.0",
-      "default": "1.0.0",
+      "const": "1.1.0",
+      "default": "1.1.0",
       "title": "Schema Version",
       "type": "string"
     },

@@ -8,6 +8,6 @@
   "maintenance_due_at": "2026-02-10T04:00:00Z",
   "maintenance_performed_at": "2026-02-10T08:00:00Z",
   "scenario_id": "high-production",
-  "schema_version": "1.0.0",
+  "schema_version": "1.1.0",
   "split": "train"
 }

@@ -94,12 +94,39 @@ def test_dataset_output_round_trips_partitioned_telemetry_and_events(tmp_path: P
     assert events.schema.equals(MAINTENANCE_EVENT_ARROW_SCHEMA, check_metadata=True)
     assert len(tuple((receipt.dataset_path / "telemetry").rglob("*.parquet"))) == 6
     assert receipt.manifest.status is ArtifactStatus.DRAFT
+    assert receipt.manifest.machine_profile == "TPPPS4"
+    assert receipt.manifest.print_architecture == "multipass"
+    assert receipt.manifest.telemetry_catalog_version == "1.0.0"
+    assert receipt.manifest.synthetic_assumptions == (
+        "print_bar_effective_motion_is_time_compressed",
+        "condition_events_are_synthetic_and_anchored_to_official_maxima",
+        "momentary_enterprise_snapshot_does_not_calibrate_distributions",
+    )
     assert {split: summary.row_count for split, summary in receipt.manifest.splits.items()} == {
         DatasetSplit.TRAIN: 3,
         DatasetSplit.VALIDATION: 3,
         DatasetSplit.TEST: 3,
     }
     assert verify_dataset(receipt.dataset_path).healthy
+
+
+def test_dataset_generation_rejects_behavior_maxima_that_diverge_from_catalog(
+    tmp_path: Path,
+) -> None:
+    behavior = MachineBehavior(BehaviorParameters(print_bar_calendar_maximum=91.0))
+
+    with pytest.raises(ValueError, match="behavior maxima do not match frozen TPPPS4 catalog"):
+        generate_synthetic_dataset(
+            output_root=tmp_path,
+            dataset_id="pilot-mismatched-maxima",
+            config=_pilot_config(days=0),
+            behavior=behavior,
+            code_commit=FIXTURE_COMMIT,
+            created_at=datetime(2026, 8, 12, 12, 0, tzinfo=UTC),
+            config_directory=ML_ROOT / "config",
+        )
+
+    assert not (tmp_path / "pilot-mismatched-maxima").exists()
 
 
 def _dataset_bytes(dataset_path: Path) -> dict[str, bytes]:
@@ -165,7 +192,7 @@ def _eventful_config() -> GenerationConfig:
             initial_state=MachineState(
                 observable=ObservableMachineState(
                     numeric_signals=(
-                        NumericSignal(name="print_bar_time_since_last_pm", value=89.5),
+                        NumericSignal(name="print_bar_time_since_last_pm", value=89.99),
                     )
                 )
             ),

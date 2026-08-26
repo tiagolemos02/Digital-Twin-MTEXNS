@@ -13,7 +13,7 @@
       "name": "ambient_temperature_mean_1h",
       "nullable": false,
       "position": 0,
-      "unit": "source_native_unconfirmed",
+      "unit": "degC",
       "window_hours": 1
     },
     {
@@ -33,6 +33,6 @@
     24,
     168
   ],
-  "schema_version": "1.0.0",
+  "schema_version": "1.1.0",
   "target": "maintenanceNeedProbability"
 }

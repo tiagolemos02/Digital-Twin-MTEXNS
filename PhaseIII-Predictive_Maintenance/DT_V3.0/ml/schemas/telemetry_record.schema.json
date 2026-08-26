@@ -22,7 +22,7 @@
       "type": "string"
     }
   },
-  "$id": "https://mtex.local/schemas/v1/telemetry_record.schema.json",
+  "$id": "https://mtex.local/schemas/v1.1/telemetry_record.schema.json",
   "additionalProperties": false,
   "description": "Canonical, privacy-safe row used after source ingestion.",
   "properties": {
@@ -130,18 +130,6 @@
       "default": null,
       "title": "Machine Status"
     },
-    "pressure_supply_color_1": {
-      "anyOf": [
-        {
-          "type": "number"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Pressure Supply Color 1"
-    },
     "print_bar_time_since_last_pm": {
       "anyOf": [
         {
@@ -215,8 +203,8 @@
       "title": "Pump Supply Color 1 Work Time Since Replacement Maximum"
     },
     "schema_version": {
-      "const": "1.0.0",
-      "default": "1.0.0",
+      "const": "1.1.0",
+      "default": "1.1.0",
       "title": "Schema Version",
       "type": "string"
     },

@@ -1,4 +1,4 @@
-config_version: "1.1.0"
+config_version: "1.0.0"
 
 prediction:
   probability_name: maintenanceNeedProbability
@@ -16,7 +16,7 @@ data_availability:
   stale_telemetry_minutes: 10
   essential_counter_stale_minutes: 30
   forward_fill_minutes:
-    environment_and_speed: 10
+    environment_pressure_speed: 10
     counters: 15
   limits_use_asof_join: true
   allow_future_fill: false

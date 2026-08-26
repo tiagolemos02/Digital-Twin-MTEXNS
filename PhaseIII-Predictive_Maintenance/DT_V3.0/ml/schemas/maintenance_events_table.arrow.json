@@ -57,7 +57,7 @@
     }
   ],
   "metadata": {
-    "contract_version": "1.0.0",
+    "contract_version": "1.1.0",
     "event_semantics": "one independent due/performed maintenance lifecycle",
     "timezone": "UTC"
   }

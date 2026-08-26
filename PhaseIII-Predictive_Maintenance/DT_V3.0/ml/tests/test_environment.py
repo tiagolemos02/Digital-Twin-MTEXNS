@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 from mtex_pdm import __version__
@@ -25,7 +28,7 @@ class FrozenConfigTests(unittest.TestCase):
     def test_frozen_configuration_is_valid(self) -> None:
         report = validate_frozen_config(CONFIG_DIR)
 
-        self.assertEqual(report.config_version, "1.0.0")
+        self.assertEqual(report.config_version, "1.1.0")
         self.assertEqual(report.component_count, 4)
         self.assertEqual(report.horizons_hours, (24, 168))
         self.assertEqual(
@@ -35,6 +38,7 @@ class FrozenConfigTests(unittest.TestCase):
                 "decision_policy.yaml",
                 "mvp.yaml",
                 "scenarios.yaml",
+                "tppps4_telemetry_catalog.json",
             ),
         )
 
@@ -54,10 +58,48 @@ class FrozenConfigTests(unittest.TestCase):
             ):
                 validate_frozen_config(copied_config)
 
+    def test_catalog_semantics_are_rejected_even_with_an_updated_checksum(self) -> None:
+        mutations: tuple[tuple[str, Callable[[dict[str, Any]], None]], ...] = (
+            ("status name", lambda payload: payload["machine_statuses"][0].update(name="Wrong")),
+            (
+                "official maximum",
+                lambda payload: payload["mvp_selection"]["derived_maximum_attributes"][
+                    "print_bar_time_since_last_pm_maximum"
+                ].update(official_maximum=91),
+            ),
+        )
+        for label, mutate in mutations:
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as temporary_directory:
+                copied_config = Path(temporary_directory) / "config"
+                shutil.copytree(CONFIG_DIR, copied_config)
+                catalog_path = copied_config / "tppps4_telemetry_catalog.json"
+                payload = json.loads(catalog_path.read_text(encoding="utf-8"))
+                mutate(payload)
+                catalog_path.write_text(
+                    json.dumps(payload, indent=2) + "\n",
+                    encoding="utf-8",
+                )
+                checksum = hashlib.sha256(catalog_path.read_bytes()).hexdigest()
+                manifest_path = copied_config / "checksums.sha256"
+                lines = manifest_path.read_text(encoding="utf-8").splitlines()
+                manifest_path.write_text(
+                    "\n".join(
+                        f"{checksum}  tppps4_telemetry_catalog.json"
+                        if line.endswith("  tppps4_telemetry_catalog.json")
+                        else line
+                        for line in lines
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+
+                with self.assertRaisesRegex(ConfigValidationError, "invalid TPPPS4 catalog"):
+                    validate_frozen_config(copied_config)
+
 
 class EnvironmentTests(unittest.TestCase):
     def test_package_version_matches_release(self) -> None:
-        self.assertEqual(__version__, "1.1.4")
+        self.assertEqual(__version__, "1.1.5")
 
     def test_parquet_round_trip(self) -> None:
         result = parquet_smoke_test()
@@ -123,7 +165,7 @@ class EnvironmentTests(unittest.TestCase):
         self.assertEqual(process.returncode, 0, process.stderr)
         report = json.loads(process.stdout)
         self.assertTrue(report["healthy"])
-        self.assertEqual(report["config_version"], "1.0.0")
+        self.assertEqual(report["config_version"], "1.1.0")
 
 
 if __name__ == "__main__":

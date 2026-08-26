@@ -68,7 +68,7 @@ def _analysis_dataset(tmp_path: Path) -> Path:
     start_at = datetime(2026, 1, 1, tzinfo=UTC)
     initial_state = MachineState(
         observable=ObservableMachineState(
-            numeric_signals=(NumericSignal(name="print_bar_time_since_last_pm", value=65.0),)
+            numeric_signals=(NumericSignal(name="print_bar_time_since_last_pm", value=89.0),)
         ),
         hidden=HiddenMachineState(
             components=tuple(
@@ -107,7 +107,7 @@ def _analysis_dataset(tmp_path: Path) -> Path:
             BehaviorParameters(
                 planned_delay_min_hours=1,
                 planned_delay_max_hours=1,
-                print_bar_distance_maximum=1_000_000_000.0,
+                print_bar_effective_motion_fraction=1e-9,
             )
         ),
         code_commit=FIXTURE_COMMIT,
@@ -124,7 +124,22 @@ def test_real_reference_flattens_structured_counters_without_inventing_units() -
 
     assert reference.confirmed_units == {
         "ambient_temperature": "degC",
+        "copies_printed": "count",
+        "copies_requested": "count",
+        "ink_area_humidity": "%",
         "ink_area_temperature": "degC",
+        "print_bar_time_since_last_pm": "d",
+        "print_bar_time_since_last_pm_maximum": "d",
+        "print_bar_traveled_distance_since_last_pm": "m",
+        "print_bar_traveled_distance_since_last_pm_maximum": "m",
+        "pump_supply_color_1_work_time_since_replacement": "s",
+        "pump_supply_color_1_work_time_since_replacement_maximum": "s",
+        "speed_mms_print_bar": "mm/s",
+        "speed_mms_transport": "mm/s",
+        "speed_rpm_print_bar": "rpm",
+        "speed_rpm_transport": "rpm",
+        "transport_vacuum_work_time_since_last_air_filter_pm": "s",
+        "transport_vacuum_work_time_since_last_air_filter_pm_maximum": "s",
     }
     assert reference.canonical_values["ambient_temperature"] == 26.6
     assert reference.canonical_values["print_bar_time_since_last_pm"] == 42.0
@@ -176,8 +191,9 @@ def test_analysis_writes_deterministic_profiles_without_mutating_dataset(tmp_pat
     assert first.profile["reference_observation"]["reference_id"] == (
         "anonymized-real-machine-snapshot-2026-08"
     )
-    assert first.events["independent_event_count"] == 3
+    assert first.events["independent_event_count"] == 5
     assert first.events["counts_by_component"]["print_bar_calendar"] == 3
+    assert first.events["counts_by_component"]["transport_vacuum_filter"] == 2
     assert first.events["preliminary_label_windows"]["24"]["estimable"]
     assert not first.events["preliminary_label_windows"]["168"]["estimable"]
     assert set(first.events["preliminary_label_windows"]["24"]["by_split"]) == {
@@ -205,7 +221,7 @@ def test_analysis_writes_deterministic_profiles_without_mutating_dataset(tmp_pat
     assert first.events["preliminary_label_windows"]["24"][
         "positive_window_counts_by_label_source"
     ] == {
-        "simulated_condition_event": 0,
+        "simulated_condition_event": 56,
         "threshold_proxy": 144,
     }
     assert first.scale_decision["decision"] == "increase_both"

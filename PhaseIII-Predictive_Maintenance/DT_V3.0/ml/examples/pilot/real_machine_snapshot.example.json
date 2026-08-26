@@ -1,7 +1,22 @@
 {
   "confirmed_units": {
     "ambient_temperature": "degC",
-    "ink_area_temperature": "degC"
+    "copies_printed": "count",
+    "copies_requested": "count",
+    "ink_area_humidity": "%",
+    "ink_area_temperature": "degC",
+    "print_bar_time_since_last_pm": "d",
+    "print_bar_time_since_last_pm_maximum": "d",
+    "print_bar_traveled_distance_since_last_pm": "m",
+    "print_bar_traveled_distance_since_last_pm_maximum": "m",
+    "pump_supply_color_1_work_time_since_replacement": "s",
+    "pump_supply_color_1_work_time_since_replacement_maximum": "s",
+    "speed_mms_print_bar": "mm/s",
+    "speed_mms_transport": "mm/s",
+    "speed_rpm_print_bar": "rpm",
+    "speed_rpm_transport": "rpm",
+    "transport_vacuum_work_time_since_last_air_filter_pm": "s",
+    "transport_vacuum_work_time_since_last_air_filter_pm_maximum": "s"
   },
   "observations": {
     "ambient_temperature": 26.6,

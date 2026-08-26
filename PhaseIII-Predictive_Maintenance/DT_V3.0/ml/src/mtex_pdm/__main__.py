@@ -14,7 +14,7 @@ from typing import Any
 from mtex_pdm import __version__
 from mtex_pdm.component_registry import collect_component_registry_report
 from mtex_pdm.config_validation import ConfigValidationError, validate_frozen_config
-from mtex_pdm.contracts import validate_contract_bundle, write_contract_schemas
+from mtex_pdm.contracts import CONTRACT_VERSION, validate_contract_bundle, write_contract_schemas
 from mtex_pdm.environment import collect_environment_report
 from mtex_pdm.generator import DatasetGenerationReceipt, generate_pilot_dataset, verify_dataset
 from mtex_pdm.pilot_analysis import analyze_pilot_dataset, verify_pilot_analysis
@@ -94,6 +94,7 @@ def build_parser() -> argparse.ArgumentParser:
         "contracts-check",
         help="Validate generated schemas, examples, and an optional CrateDB snapshot.",
     )
+    _add_config_directory(contracts_parser)
     contracts_parser.add_argument(
         "--schemas-dir",
         type=Path,
@@ -111,12 +112,6 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Optional JSON snapshot of the enterprise CrateDB table schema.",
     )
-    contracts_parser.add_argument(
-        "--json",
-        action="store_true",
-        help="Emit compact JSON instead of indented JSON.",
-    )
-
     export_parser = subparsers.add_parser(
         "contracts-export",
         help="Regenerate JSON and Arrow schema descriptors with checksums.",
@@ -228,6 +223,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 schemas_dir=arguments.schemas_dir,
                 examples_dir=arguments.examples_dir,
                 crate_schema_path=arguments.crate_schema,
+                config_directory=arguments.config_dir,
             )
         elif arguments.command == "dataset-check":
             dataset_verification = verify_dataset(arguments.dataset_path)
@@ -301,7 +297,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             written = write_contract_schemas(arguments.output_dir)
             report = {
                 "healthy": True,
-                "contract_version": "1.0.0",
+                "contract_version": CONTRACT_VERSION,
                 "output_directory": str(arguments.output_dir.resolve()),
                 "written": list(written),
             }

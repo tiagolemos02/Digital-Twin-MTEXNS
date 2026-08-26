@@ -113,22 +113,12 @@ def test_registry_requires_eta_to_use_the_component_primary_attribute() -> None:
         parse_component_registry(document)
 
 
-def test_supply_pressure_extension_remains_optional_for_real_shadow_data() -> None:
+def test_supply_pump_uses_only_signals_in_the_authorized_tppps4_stream() -> None:
     registry = load_component_registry(CONFIG_DIR)
     pump = registry.get(ComponentKey.SUPPLY_PUMP_COLOR_1)
 
-    assert len(pump.synthetic_extensions) == 1
-    pressure = pump.synthetic_extensions[0]
-    assert pressure.attribute == "pressure_supply_color_1"
-    assert not pressure.present_in_esp32_simulator
-    assert not pressure.required_for_real_shadow
-
-    document = deepcopy(_components_document())
-    document["components"]["supply_pump_color_1"]["synthetic_extensions"][0][
-        "required_for_real_shadow"
-    ] = True
-    with pytest.raises(ComponentConfigError, match="synthetic extensions cannot be required"):
-        parse_component_registry(document)
+    assert pump.component_attributes == ("pump_supply_color_1_work_time_since_replacement",)
+    assert pump.synthetic_extensions == ()
 
 
 def test_registry_requires_every_frozen_leakage_exclusion() -> None:
@@ -149,14 +139,6 @@ def test_primary_attribute_must_be_a_component_signal() -> None:
     calendar["eta"]["source_attribute"] = "machine_status"
 
     with pytest.raises(ComponentConfigError, match="primary_attribute must be listed"):
-        parse_component_registry(document)
-
-
-def test_synthetic_only_pressure_must_be_declared_as_an_extension() -> None:
-    document = deepcopy(_components_document())
-    del document["components"]["supply_pump_color_1"]["synthetic_extensions"]
-
-    with pytest.raises(ComponentConfigError, match="synthetic-only attributes must be declared"):
         parse_component_registry(document)
 
 
@@ -191,9 +173,12 @@ def test_components_check_cli_reports_the_operational_registry() -> None:
     assert report["component_count"] == 4
     assert report["component_keys"] == [component.value for component in ComponentKey]
     assert report["shared_observable_attribute_count"] == 8
-    assert report["all_observable_attribute_count"] == 21
+    assert report["all_observable_attribute_count"] == 20
     assert report["hidden_state_component_count"] == 2
-    assert report["synthetic_extension_count"] == 1
+    assert report["synthetic_extension_count"] == 0
+    assert report["source_catalog_attribute_count"] == 105
+    assert report["selected_source_attribute_count"] == 16
+    assert report["derived_attribute_count"] == 4
 
 
 def test_iamalive_remains_connectivity_only_not_a_component_feature() -> None:
@@ -233,14 +218,4 @@ def test_condition_eta_is_explicitly_an_imperfect_baseline() -> None:
     document["components"]["transport_vacuum_filter"]["eta"]["role"] = None
 
     with pytest.raises(ComponentConfigError, match="condition ETA role"):
-        parse_component_registry(document)
-
-
-def test_synthetic_extension_cannot_claim_to_exist_in_esp32_simulator() -> None:
-    document = deepcopy(_components_document())
-    document["components"]["supply_pump_color_1"]["synthetic_extensions"][0][
-        "present_in_esp32_simulator"
-    ] = True
-
-    with pytest.raises(ComponentConfigError, match="synthetic extensions cannot be present"):
         parse_component_registry(document)

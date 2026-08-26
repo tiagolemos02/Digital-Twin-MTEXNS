@@ -1,12 +1,8 @@
-config_version: "1.1.0"
+config_version: "1.0.0"
 
 freeze:
   status: frozen
-  frozen_at: "2026-08-25"
-  supersedes_config_version: "1.0.0"
-  change_reason: >-
-    Align the synthetic generator, units, source types and categorical machine
-    states with the authorized 105-attribute TPPPS4 multipass contract.
+  frozen_at: "2026-07-29"
   source_plan: "../../../predictive-maintenance_implem.md"
   change_policy:
     require_version_bump: true
@@ -110,7 +106,7 @@ quality_contract:
   stale_telemetry_minutes: 10
   essential_counter_stale_minutes: 30
   forward_fill_minutes:
-    environment_and_speed: 10
+    environment_pressure_speed: 10
     counters: 15
   causal_forward_fill_only: true
   calculate_rates_across_resets: false
@@ -153,7 +149,7 @@ scope:
   excluded:
     - enterprise_ml_deployment
     - real_failure_prediction_claims
-    - all_maintenance_counters_as_model_features
+    - all_75_maintenance_counters
     - external_notifications
     - automatic_work_orders
     - machine_control
@@ -170,5 +166,4 @@ config_files:
   components: components.yaml
   scenarios: scenarios.yaml
   decision_policy: decision_policy.yaml
-  telemetry_catalog: tppps4_telemetry_catalog.json
   checksums: checksums.sha256
