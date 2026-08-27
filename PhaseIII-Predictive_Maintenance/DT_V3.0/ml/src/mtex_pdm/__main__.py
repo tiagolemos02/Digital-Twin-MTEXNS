@@ -17,6 +17,12 @@ from mtex_pdm.config_validation import ConfigValidationError, validate_frozen_co
 from mtex_pdm.contracts import CONTRACT_VERSION, validate_contract_bundle, write_contract_schemas
 from mtex_pdm.environment import collect_environment_report
 from mtex_pdm.generator import DatasetGenerationReceipt, generate_pilot_dataset, verify_dataset
+from mtex_pdm.mqtt_publisher import (
+    DryRunMqttTransport,
+    PahoMqttTransport,
+    ProspectivePublisher,
+    ProspectivePublisherSettings,
+)
 from mtex_pdm.pilot_analysis import analyze_pilot_dataset, verify_pilot_analysis
 
 
@@ -37,7 +43,13 @@ def _default_ml_directory(name: str, environment_variable: str) -> Path:
     configured = os.environ.get(environment_variable)
     if configured:
         return Path(configured)
-    return Path(__file__).resolve().parents[2] / name
+    source_layout_candidate = Path(__file__).resolve().parents[2] / name
+    if source_layout_candidate.exists():
+        return source_layout_candidate
+    working_directory_candidate = Path.cwd() / name
+    if working_directory_candidate.exists():
+        return working_directory_candidate
+    return source_layout_candidate
 
 
 def _add_pilot_generation_arguments(parser: argparse.ArgumentParser) -> None:
@@ -166,6 +178,23 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--analysis-root", type=Path, required=True)
     run_parser.add_argument("--reference-snapshot", type=Path)
     _add_config_directory(run_parser)
+
+    mqtt_parser = subparsers.add_parser(
+        "mqtt-publish",
+        help="Publish persistent prospective TPPPS4 telemetry to MQTT.",
+    )
+    mqtt_parser.add_argument("--settings", type=Path, required=True)
+    mqtt_parser.add_argument(
+        "--max-ticks",
+        type=int,
+        help="Stop after this many batches; omit for continuous operation.",
+    )
+    mqtt_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Render and validate one or more batches without network or state writes.",
+    )
+    _add_config_directory(mqtt_parser)
     export_parser.add_argument(
         "--json",
         action="store_true",
@@ -292,6 +321,43 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "maintenance_event_count": analysis.events["independent_event_count"],
                 "scale_decision": analysis.scale_decision["decision"],
                 "freeze_ready": analysis.scale_decision["freeze_ready"],
+            }
+        elif arguments.command == "mqtt-publish":
+            settings = ProspectivePublisherSettings.load(arguments.settings)
+            dry_run = bool(arguments.dry_run)
+            max_ticks = arguments.max_ticks
+            if dry_run and max_ticks is None:
+                max_ticks = 1
+            transport = DryRunMqttTransport() if dry_run else PahoMqttTransport(settings.broker)
+
+            def log_batch(batch_count: int, message_count: int) -> None:
+                if not dry_run:
+                    print(
+                        f"mqtt batch {batch_count} complete: {message_count} messages",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+
+            publisher_report = ProspectivePublisher(
+                settings,
+                config_directory=(
+                    arguments.config_dir or _default_ml_directory("config", "MTEX_PDM_CONFIG_DIR")
+                ),
+                transport=transport,
+                dry_run=dry_run,
+                on_batch=log_batch,
+            ).run(max_ticks=max_ticks)
+            report = {
+                "healthy": True,
+                "dry_run": dry_run,
+                "mode": publisher_report.mode.value,
+                "machine_count": publisher_report.machine_count,
+                "attribute_count": publisher_report.attribute_count,
+                "batch_count": publisher_report.batch_count,
+                "message_count": publisher_report.message_count,
+                "ground_truth_event_count": publisher_report.ground_truth_event_count,
+                "resumed": publisher_report.resumed,
+                "state_path": str(publisher_report.state_path),
             }
         else:
             written = write_contract_schemas(arguments.output_dir)

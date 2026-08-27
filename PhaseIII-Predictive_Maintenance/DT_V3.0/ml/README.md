@@ -1,18 +1,19 @@
 # MTEX Predictive-Maintenance Module
 
-Version `1.1.5` aligns the synthetic generator and persisted contract with the
-authorised TPPPS4 multipass catalogue. The source catalogue contains exactly 105
-attributes and all 25 supplied machine-status codes. The predictive dataset uses
-16 of those source attributes plus four derived counter maxima; the future MQTT
-adapter will retain the complete 105-attribute payload.
+Version `1.1.6` adds the prospective MQTT publisher for four to six persistent
+synthetic TPPPS4 multipass machines. Each complete machine batch renders exactly
+105 per-attribute MQTT messages, while the predictive model remains limited to
+the 16 authorised source attributes plus four derived counter maxima selected in
+v1.1.5.
 
 The company workbook is the authority for names, units, types, hierarchies, and
 counter limits. The supplied live TPPPS4 observation is only a format example and
 is not used to calibrate distributions or event frequencies. The software release
-is `1.1.5`, configuration and persisted contracts are `1.1.0`, and the source
-catalogue is `1.0.0`. This release does not implement MQTT/Implementation E,
-labels, features, models, enterprise access, FIWARE prediction persistence, or
-portal changes.
+is `1.1.6`, configuration and persisted contracts are `1.1.0`, and the source
+catalogue is `1.0.0`. This release implements local rendering, scheduling,
+publication, and restart state; it does not register portal machines, deploy to
+the company server, contact a broker, create labels/features/models, read the
+enterprise database, persist FIWARE predictions, or change the portal.
 
 ## Environment Contract
 
@@ -38,6 +39,7 @@ ml/
 ├── config/                  # Frozen v1.1.0 contract, source catalogue, and checksums
 │   └── archive/v1.0.0/      # Superseded configuration retained unchanged
 ├── examples/contracts/      # Valid and deliberately invalid contract fixtures
+├── examples/mqtt/           # Secret-free prospective publisher example
 ├── examples/pilot/          # Minimal anonymized real reference observation
 ├── schemas/                 # Generated JSON/Arrow schemas and SHA-256 checksums
 ├── src/mtex_pdm/
@@ -45,6 +47,7 @@ ml/
 │   ├── telemetry_catalog.py  # TPPPS4 catalogue and machine-status contract
 │   ├── contracts/           # Typed records, manifests, physical schemas, registry
 │   ├── generator/           # Engine, behaviour, Parquet datasets, events, checkpoints
+│   ├── mqtt_publisher.py     # MQTT rendering, transport, scheduling, state, and resume
 │   └── pilot_analysis.py    # Profiling, event prevalence, scale decision, verification
 ├── tests/                   # Contracts, generator, dataset, and pilot-analysis tests
 ├── .dockerignore
@@ -679,6 +682,137 @@ calibration still require human review. Run a short v1.1.5 pilot first, inspect
 its reports, and only then execute the larger MacBook candidate and decide whether
 the dataset can be frozen.
 
+## Prospective MQTT Publisher v1.1.6
+
+Implementation E turns the existing causal generator into a wall-clock publisher
+for prospective synthetic machines. It deliberately does not replay a historical
+Parquet dataset: every batch advances each local machine by one new simulation
+step, renders a current TPPPS4 snapshot, publishes the full batch, and only then
+persists the continuation state. These machines therefore belong exclusively to
+the `mqtt_prospective` boundary and must never be included in historical training
+splits.
+
+### Frozen operating profiles
+
+| Profile | YAML mode | Batch interval | Intended use |
+|---------|-----------|----------------|--------------|
+| Continuous warm-up | `mqtt_continuous` | 60 seconds | Multi-hour/day prospective collection after portal provisioning |
+| Bounded demonstration | `mqtt_demonstration` | 8 seconds | Short observable integration demonstration |
+
+Both profiles require four to six distinct machine IDs and one authorised
+prospective scenario per machine. `--max-ticks` limits either profile to an exact
+number of complete batches; omitting it runs until `Ctrl+C`. A normal stop occurs
+after the current complete batch and leaves the last checkpoint available for
+resume.
+
+Copy `examples/mqtt/prospective.example.yaml` to a local, deployment-specific
+settings file. Replace the six placeholder device IDs with IDs provisioned in the
+portal and verify the broker/TLS options. Keep the chosen machine IDs, scenarios,
+master seed, mode, and cadence frozen for an evaluation run. The publisher refuses
+to resume an existing state file if any of those simulation-defining settings
+change; use a reviewed new settings/state pair for a genuinely new experiment.
+
+### MQTT contract
+
+One simulation tick normally produces one complete logical snapshot per machine:
+
+| Property | Contract |
+|----------|----------|
+| Topic | `<device-id>/state/<attribute>` |
+| Source attributes | Exactly the 105 names and catalogue order in `config/tppps4_telemetry_catalog.json` |
+| Delivery | MQTT 3.1.1, QoS `0`, `retain=false` |
+| Scalar payload | JSON number |
+| Maintenance-counter payload | JSON object `{"maximum": number, "value": number}` |
+| `iamalive` payload | JSON string using Europe/Lisbon local wall time: `YYYY-MM-DD HH:MM:SS` |
+| `machine_status` | One of the 25 authorised integer codes |
+
+The 16 selected source attributes are advanced dynamically by the v1.1.5 causal
+engine. The four selected counter maxima come from the authorised catalogue. The
+remaining 89 source attributes are emitted as type-correct neutral compatibility
+values (`0`, `0.0`, or a bounded object with `value: 0`); they preserve the current
+105-topic device contract but are not calibrated predictive signals. They must not
+be described as realistic degradation trajectories in the thesis. Source fields
+declared as integers are serialized as JSON integers; this includes copy counters
+whose internal 60-second simulation increment can be fractional.
+
+The `prospective_telemetry_gap` scenario is the deliberate exception to a snapshot
+on every tick. During its configured gap phase, that machine emits no partial
+snapshot—zero of its topics are published—while the other machines still emit
+complete 105-message snapshots. Advancing the local checkpoint in this case
+records an intentional simulated absence, not a partially published machine.
+
+The publisher never places the scenario name, master/machine seed, hidden wear,
+health score, event ID, due date, scheduled/performed maintenance date, reset
+marker, or future label on MQTT. `iamalive` indicates the synthetic publisher's
+current connectivity only; it is not a simulated historical measurement time.
+Ground truth stays in the local state/evaluation boundary.
+
+### Safe dry-run
+
+Run this before any broker or portal operation:
+
+```bash
+python -m mtex_pdm mqtt-publish \
+  --settings examples/mqtt/prospective.example.yaml \
+  --dry-run \
+  --max-ticks 1 \
+  --json
+```
+
+With the six-machine example, the expected report is healthy with
+`machine_count: 6`, `attribute_count: 105`, `batch_count: 1`,
+`message_count: 630`, `ground_truth_event_count: 0`, and `resumed: false`.
+Dry-run validates and renders all messages but opens no network connection,
+sleeps for no wall-clock interval, and neither creates nor advances the state
+file. Omitting `--max-ticks` in dry-run still performs only one safe batch.
+
+### State, restart, and failure boundary
+
+The local JSON state contains the full synthetic checkpoint, including hidden
+component state, RNG continuation, and an append-only in-state audit trail of
+ground-truth maintenance markers. It therefore belongs below ignored `ml/data/`,
+must not be published, copied into the portal, or committed, and is created with
+owner-only permissions on POSIX systems where supported. A sibling lock file
+prevents two publisher processes from advancing the same state.
+
+Before the first network connection, the publisher atomically writes a zero-batch
+initial checkpoint. Subsequent state is written through a temporary file and
+atomic replacement only after all messages for every emitted snapshot have
+completed publication. If a process fails partway through a QoS-0 batch, the
+persisted state does not advance; on restart, that exact logical batch may be
+replayed, but the publisher does not silently skip the failed simulation step.
+The audit trail retains event ID, kind, machine, component, scenario, occurrence,
+due time, and severity locally after resets. MQTT QoS 0 does not guarantee broker
+delivery, and this local checkpoint is not an end-to-end transaction across MQTT,
+IoT Agent, Orion, QuantumLeap, and CrateDB.
+
+### Credentials and network execution
+
+Username and password values are read from the environment-variable names in the
+settings file; no secret value belongs in YAML, Git, command history, or logs.
+Enable TLS and set `ca_file` for a TLS broker. The transport uses bounded connect
+and publish waits plus MQTT reconnection delays, and fails instead of advancing
+state when a connection/publication operation is not confirmed locally.
+
+Only after the machine IDs and attributes are provisioned and the company has
+approved the broker endpoint should a one-batch network test be run:
+
+```bash
+read -r -p 'MQTT username: ' MTEX_PDM_MQTT_USERNAME
+read -r -s -p 'MQTT password: ' MTEX_PDM_MQTT_PASSWORD && printf '\n'
+export MTEX_PDM_MQTT_USERNAME MTEX_PDM_MQTT_PASSWORD
+python -m mtex_pdm mqtt-publish \
+  --settings path/to/reviewed-prospective.yaml \
+  --max-ticks 1 \
+  --json
+```
+
+After verifying the complete 105-attribute snapshots downstream, continuous
+warm-up is the same command without `--max-ticks`. Detailed server service,
+restart policy, logs, resource limits, and downstream verification steps are a
+separate deployment procedure to perform after this implementation is committed
+and the company-side prerequisites are known.
+
 ## Local Setup
 
 Run the following commands from `DT_V3.0/ml`.
@@ -765,6 +899,11 @@ python -m mtex_pdm pilot-run --output-root data/pilots \
   --created-at 2026-08-13T08:00:00Z \
   --reference-snapshot examples/pilot/real_machine_snapshot.example.json
 
+# Render and validate one six-machine MQTT batch without network or state writes
+python -m mtex_pdm mqtt-publish \
+  --settings examples/mqtt/prospective.example.yaml \
+  --dry-run --max-ticks 1 --json
+
 # Full machine/environment report
 python -m mtex_pdm environment-check
 
@@ -793,9 +932,9 @@ second dependency graph, validates the frozen configuration, and runs the test
 suite. The final process uses a non-root user.
 
 ```bash
-docker build --file Dockerfile.training --tag mtex-pdm-training:1.1.5 .
-docker run --rm --cpus 2 --memory 4g mtex-pdm-training:1.1.5
-docker run --rm mtex-pdm-training:1.1.5 components-check --json
+docker build --file Dockerfile.training --tag mtex-pdm-training:1.1.6 .
+docker run --rm --cpus 2 --memory 4g mtex-pdm-training:1.1.6
+docker run --rm mtex-pdm-training:1.1.6 components-check --json
 ```
 
 The image defaults to the full `environment-check`. Its entry point is
@@ -803,7 +942,7 @@ The image defaults to the full `environment-check`. Its entry point is
 tools:
 
 ```bash
-docker run --rm --entrypoint python mtex-pdm-training:1.1.5 -m pytest
+docker run --rm --entrypoint python mtex-pdm-training:1.1.6 -m pytest
 ```
 
 ### Device-specific builds
@@ -815,7 +954,7 @@ docker buildx build \
   --platform linux/arm64 \
   --load \
   --file Dockerfile.training \
-  --tag mtex-pdm-training:1.1.5-arm64 \
+  --tag mtex-pdm-training:1.1.6-arm64 \
   .
 ```
 
@@ -826,7 +965,7 @@ docker buildx build \
   --platform linux/amd64 \
   --load \
   --file Dockerfile.training \
-  --tag mtex-pdm-training:1.1.5-amd64 \
+  --tag mtex-pdm-training:1.1.6-amd64 \
   .
 ```
 
@@ -896,6 +1035,10 @@ Available now:
 - Atomic, checksummed analysis packages with optional source-dataset lineage verification.
 - Authorised 105-attribute TPPPS4 multipass source catalogue with confirmed metadata.
 - Strict 25-code categorical machine-status dictionary and 20-field predictive telemetry contract.
+- Persistent prospective publisher for four to six machines with 60-second continuous and 8-second demonstration profiles.
+- Exact 105-topic TPPPS4 rendering with QoS 0, retention disabled, and hidden/ground-truth fields excluded.
+- Safe no-network dry-run, bounded publication, process locking, atomic checkpointing, and deterministic restart continuation.
+- MQTT 3.1.1 transport with optional TLS, environment-only credentials, bounded waits, and reconnect delays.
 - Byte-identical repeat/checkpoint-resume tests plus semantic integrity gates.
 - Parquet and LightGBM smoke tests.
 - Reproducible, non-root ARM64/x86-64 Docker build.
@@ -904,11 +1047,11 @@ Available now:
 Intentionally deferred to the next targets:
 
 - Human review and versioned freeze of pilot physical ranges and degradation rates.
-- Official post-v1.1.5 Day-5 pilot using the resulting real Git commit and subsequent MacBook scale run.
+- Review and final freeze decision for the regenerated v1.1.5 MacBook scale evidence.
 - Full 12-machine × 180-day dataset after unit/parameter review and freeze.
-- MQTT output and wall-clock scheduling for prospective machines.
 - Complete dataset/event-volume reproducibility gate, labels, feature computation,
   training, and inference.
-- Machine registration and prospective MQTT scenarios.
+- Company-side machine registration, reviewed deployment settings, server service,
+  downstream verification, and prospective MQTT warm-up/soak operation.
 - Read-only enterprise CrateDB export.
 - FIWARE prediction persistence and portal integration.

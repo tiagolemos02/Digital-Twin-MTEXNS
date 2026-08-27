@@ -1,14 +1,15 @@
-# Phase III - Predictive Maintenance v1.1.5
+# Phase III - Predictive Maintenance v1.1.6
 
-**Version 1.1.5 aligns the synthetic-data contract and generator with the authorised TPPPS4 multipass telemetry catalogue.**
+**Version 1.1.6 implements the prospective MQTT publisher for persistent TPPPS4 synthetic machines.**
 
-Version `1.1.5` records all 105 TPPPS4 source attributes and their confirmed metadata, selects the 16 source attributes used by the predictive
-MVP, derives four counter maxima, models all 25 machine-status codes categorically, and corrects the calendar, distance, vacuum-filter, and
-colour-1 supply-pump dynamics against the official maintenance maxima. The configuration and persisted contract advance to `1.1.0`; the
-source-catalogue version is `1.0.0`.
+Version `1.1.6` reuses the causal v1.1.5 state engine to publish 4–6 prospective machines through the existing per-attribute MQTT contract.
+Every emitted machine snapshot contains exactly 105 TPPPS4 topics with QoS 0 and retention disabled. Continuous mode uses 60-second batches; the bounded
+demonstration profile uses 8-second batches. Atomic local checkpoints preserve synthetic machine/RNG state without publishing hidden
+degradation, scenarios, seeds, ground-truth events, or future maintenance dates.
 
-The supplied TPPPS4 observation remains a format example rather than a calibrating population. Version `1.1.5` does not implement the
-continuous MQTT publisher (Implementation E), does not train models, and does not claim industrial predictive performance.
+Configuration and persisted contracts remain `1.1.0`, and the authorised source catalogue remains `1.0.0`. No broker, IoT Agent, Orion,
+QuantumLeap, CrateDB, portal machine, or company server was contacted during this implementation. Deployment and warm-up are separate,
+explicitly controlled steps.
 
 The existing Phase II security model remains the baseline: browser traffic goes through the portal, PEP Proxy, API Gateway, Keyrock, and AuthzForce policies. CrateDB and QuantumLeap are intentionally kept internal-only.
 
@@ -18,11 +19,60 @@ The existing Phase II security model remains the baseline: browser traffic goes 
 
 **Phase**: `Phase III - Predictive Maintenance`
 
-**Version**: `1.1.5`
+**Version**: `1.1.6`
 
 **Author**: Tiago Lemos
 
 **Licence**: MIT
+
+---
+
+## Scope of v1.1.6
+
+### Implemented
+
+- `mqtt-publish` CLI with safe `--dry-run`, bounded `--max-ticks`, and uninterrupted continuous operation until `Ctrl+C`
+- Four-to-six disjoint `mqtt_prospective` machines with prospective-only scenarios and fixed 60-second or 8-second cadence from the frozen MVP
+- Exactly 105 MQTT messages per emitted machine snapshot using `<device-id>/state/<attribute>`, QoS 0, and `retain=false`
+- JSON-string heartbeat compatible with the current portal ingestion contract, scalar numeric payloads, and structured `{maximum,value}` maintenance counters
+- Dynamic publication of the 16 source signals modelled by the v1.1.5 engine, including temperature, humidity, status, production, speeds, and four maintenance counters
+- Four official counter maxima embedded in their MQTT source objects; the 89 non-MVP source fields remain neutral, correctly typed compatibility values rather than invented predictive dynamics
+- Strict exclusion of hidden degradation, scenario names, seeds, event IDs, ground-truth markers, and future maintenance/intervention timestamps from MQTT
+- Atomic, process-locked initial checkpoint before the first connection and continuation checkpoint after each completely published batch
+- Local append-only ground-truth event audit inside the protected state, retaining maintenance markers across resets without exposing them to MQTT
+- Fail-closed state fingerprinting when machine identities, scenarios, seed, cadence, or mode change; a new configuration requires a new state path
+- Paho MQTT 3.1.1 transport with bounded connection/publication waits, reconnection delay, optional TLS CA, environment-only credentials, and no secret logging
+- Crash boundary in which a failed partial batch never advances the persisted checkpoint; a restart may replay that one QoS-0 batch but cannot silently skip state
+- Resource discovery that preserves the source-layout default and falls back to the current `ml` directory for fresh non-editable installations
+- Ten focused MQTT tests plus full regression, lint, format, and static-type coverage
+
+### New
+
+| File | Purpose |
+|------|---------|
+| `ml/src/mtex_pdm/mqtt_publisher.py` | Settings, full TPPPS4 payload renderer, Paho transport, scheduler, process lock, atomic checkpoint, and resume logic |
+| `ml/tests/test_mqtt_publisher.py` | Protects the 105-topic contract, data boundaries, settings, state resume, failure behavior, Paho options, example, and dry-run CLI |
+| `ml/examples/mqtt/prospective.example.yaml` | Secret-free six-machine continuous-mode example to copy, edit, provision, and freeze before warm-up |
+
+### Why
+
+- Start collecting prospective synthetic telemetry through the same MQTT → IoT Agent → Orion → QuantumLeap → CrateDB path used by the portal
+- Keep prospective machines strictly outside historical training while retaining the same causal component dynamics and authorised TPPPS4 names
+- Survive service restarts without resetting counters or changing deterministic RNG streams
+- Make a one-batch local contract test possible before any network, portal, or server mutation
+- Prevent credentials, hidden labels, maintenance dates, and unreviewed physical assumptions from leaking into the MQTT stream
+- Preserve all 105 provisioned attributes without pretending that the 89 non-MVP compatibility fields were calibrated by one momentary company observation
+
+### Not Changed
+
+- The existing ESP32 `MQTTSimulator`, its three devices, topics, source files, and portal-only purpose are unchanged
+- Frozen configuration/contract `1.1.0`, catalogue `1.0.0`, four component targets, official maxima, and historical v1.1.5 generator behavior are unchanged
+- No actual machine registration, broker connection, publisher warm-up, soak test, or company-server deployment has been performed
+- MQTT ground truth is not published; prospective evaluation labels must later come from the separately controlled synthetic state/evaluation workflow
+- No historical dataset was promoted or frozen, and no labels, features, models, calibration, SHAP, inference, FIWARE prediction entities, BFF, or portal visualization were implemented
+- Synthetic prospective telemetry cannot establish industrial predictive performance
+
+Full configuration, dry-run, payload, persistence, operational-boundary, and later deployment guidance is documented in [`ml/README.md`](ml/README.md).
 
 ---
 

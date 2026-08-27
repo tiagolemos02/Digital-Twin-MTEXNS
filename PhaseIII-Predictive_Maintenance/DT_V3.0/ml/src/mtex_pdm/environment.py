@@ -17,6 +17,7 @@ EXPECTED_DEPENDENCIES = {
     "lightgbm": "4.7.0",
     "matplotlib": "3.11.1",
     "numpy": "2.4.6",
+    "paho-mqtt": "2.1.0",
     "polars": "1.43.0",
     "pyarrow": "25.0.0",
     "pydantic": "2.13.4",

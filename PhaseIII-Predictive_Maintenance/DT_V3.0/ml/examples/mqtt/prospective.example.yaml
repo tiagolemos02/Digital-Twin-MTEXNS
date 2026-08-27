@@ -1,0 +1,34 @@
+settings_version: "1.0.0"
+mode: mqtt_continuous
+master_seed: 20260729
+
+# Resolved relative to this file. The state contains synthetic hidden state and
+# must remain local; it is never published to MQTT or committed.
+state_path: ../../data/mqtt/prospective-state.json
+
+broker:
+  host: 127.0.0.1
+  port: 1883
+  tls: false
+  client_id: mtex-pdm-prospective
+  username_env: MTEX_PDM_MQTT_USERNAME
+  password_env: MTEX_PDM_MQTT_PASSWORD
+  keepalive_seconds: 60
+  connect_timeout_seconds: 10
+  publish_timeout_seconds: 10
+
+# Replace these IDs with 4–6 distinct Device IDs provisioned in the portal.
+# Freeze the resulting file before prospective model evaluation.
+machines:
+  - machine_id: pdm-prospective-01
+    scenario_id: prospective_healthy
+  - machine_id: pdm-prospective-02
+    scenario_id: prospective_calendar_wear
+  - machine_id: pdm-prospective-03
+    scenario_id: prospective_intense_production
+  - machine_id: pdm-prospective-04
+    scenario_id: prospective_temperature_stress
+  - machine_id: pdm-prospective-05
+    scenario_id: prospective_pump_stress
+  - machine_id: pdm-prospective-06
+    scenario_id: prospective_combined_stress
