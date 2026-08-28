@@ -10,8 +10,9 @@ import time
 from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager
 from datetime import UTC, datetime, timedelta
+from importlib import import_module
 from pathlib import Path
-from typing import Any, Literal, Protocol, Self
+from typing import Any, BinaryIO, Literal, Protocol, Self, cast
 from zoneinfo import ZoneInfo
 
 import yaml
@@ -53,6 +54,51 @@ _HISTORICAL_ID_PREFIXES = (
     "synthetic-validation-",
     "synthetic-test-",
 )
+
+
+class _WindowsFileLockModule(Protocol):
+    LK_NBLCK: int
+    LK_UNLCK: int
+
+    def locking(self, fd: int, mode: int, nbytes: int, /) -> None: ...
+
+
+class _PosixFileLockModule(Protocol):
+    LOCK_EX: int
+    LOCK_NB: int
+    LOCK_UN: int
+
+    def flock(self, fd: int, operation: int, /) -> None: ...
+
+
+def _acquire_platform_file_lock(handle: BinaryIO, platform_name: str) -> None:
+    """Acquire one non-blocking advisory lock through the current native API."""
+    if platform_name == "nt":
+        windows_lock = cast(_WindowsFileLockModule, import_module("msvcrt"))
+        handle.seek(0)
+        if handle.read(1) == b"":
+            handle.write(b"0")
+            handle.flush()
+        handle.seek(0)
+        windows_lock.locking(handle.fileno(), windows_lock.LK_NBLCK, 1)
+        return
+
+    posix_lock = cast(_PosixFileLockModule, import_module("fcntl"))
+    posix_lock.flock(handle.fileno(), posix_lock.LOCK_EX | posix_lock.LOCK_NB)
+
+
+def _release_platform_file_lock(handle: BinaryIO, platform_name: str) -> None:
+    """Release one advisory lock through the matching native API."""
+    if platform_name == "nt":
+        windows_lock = cast(_WindowsFileLockModule, import_module("msvcrt"))
+        handle.seek(0)
+        windows_lock.locking(handle.fileno(), windows_lock.LK_UNLCK, 1)
+        return
+
+    posix_lock = cast(_PosixFileLockModule, import_module("fcntl"))
+    posix_lock.flock(handle.fileno(), posix_lock.LOCK_UN)
+
+
 _PROSPECTIVE_SCENARIOS = frozenset(
     scenario_id
     for scenario_id in supported_scenario_ids()
@@ -257,7 +303,7 @@ class PahoMqttTransport:
             from paho.mqtt.enums import CallbackAPIVersion
         except ImportError as error:
             raise ImportError(
-                "paho-mqtt is required for network publishing; install the v1.1.6 lock file"
+                "paho-mqtt is required for network publishing; install the locked dependencies"
             ) from error
 
         self._mqtt = mqtt
@@ -468,23 +514,7 @@ class _StateFileLock(AbstractContextManager["_StateFileLock"]):
         self.path.parent.mkdir(parents=True, exist_ok=True)
         handle = self.path.open("a+b")
         try:
-            if os.name == "nt":
-                import msvcrt
-
-                handle.seek(0)
-                if handle.read(1) == b"":
-                    handle.write(b"0")
-                    handle.flush()
-                handle.seek(0)
-                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
-            else:
-                import fcntl as fcntl_module
-
-                portable_fcntl: Any = fcntl_module
-                portable_fcntl.flock(
-                    handle.fileno(),
-                    portable_fcntl.LOCK_EX | portable_fcntl.LOCK_NB,
-                )
+            _acquire_platform_file_lock(handle, os.name)
         except (OSError, PermissionError) as error:
             handle.close()
             raise RuntimeError(f"another publisher is using state file {self.path}") from error
@@ -495,16 +525,7 @@ class _StateFileLock(AbstractContextManager["_StateFileLock"]):
         del exc_type, exc_value, traceback
         if self._handle is None:
             return
-        if os.name == "nt":
-            import msvcrt
-
-            self._handle.seek(0)
-            msvcrt.locking(self._handle.fileno(), msvcrt.LK_UNLCK, 1)
-        else:
-            import fcntl as fcntl_module
-
-            portable_fcntl: Any = fcntl_module
-            portable_fcntl.flock(self._handle.fileno(), portable_fcntl.LOCK_UN)
+        _release_platform_file_lock(self._handle, os.name)
         self._handle.close()
         self._handle = None
 

@@ -1,15 +1,14 @@
 # MTEX Predictive-Maintenance Module
 
-Version `1.1.6` adds the prospective MQTT publisher for four to six persistent
-synthetic TPPPS4 multipass machines. Each complete machine batch renders exactly
-105 per-attribute MQTT messages, while the predictive model remains limited to
-the 16 authorised source attributes plus four derived counter maxima selected in
-v1.1.5.
+Version `1.1.7` hardens the prospective MQTT publisher's state-file lock across
+Windows, macOS, and Linux. It preserves the complete v1.1.6 MQTT and checkpoint
+contract while making the platform-specific native locking boundary verifiable
+by mypy on all three operating-system targets.
 
 The company workbook is the authority for names, units, types, hierarchies, and
 counter limits. The supplied live TPPPS4 observation is only a format example and
 is not used to calibrate distributions or event frequencies. The software release
-is `1.1.6`, configuration and persisted contracts are `1.1.0`, and the source
+is `1.1.7`, configuration and persisted contracts are `1.1.0`, and the source
 catalogue is `1.0.0`. This release implements local rendering, scheduling,
 publication, and restart state; it does not register portal machines, deploy to
 the company server, contact a broker, create labels/features/models, read the
@@ -682,6 +681,62 @@ calibration still require human review. Run a short v1.1.5 pilot first, inspect
 its reports, and only then execute the larger MacBook candidate and decide whether
 the dataset can be frozen.
 
+## Cross-platform publisher lock v1.1.7
+
+### Implemented
+
+- Lazy native-module loading behind typed Windows and POSIX lock protocols
+- Preserved `msvcrt.locking` byte-range behavior on Windows
+- Preserved non-blocking `fcntl.flock` behavior on macOS and Linux
+- One host-independent regression test covering acquire and release on both APIs
+- Release type checks for `win32`, `darwin`, and `linux`
+- Cache-safe validation commands for a read-only server deployment
+
+### New
+
+| File | Purpose |
+|------|---------|
+| `src/mtex_pdm/mqtt_publisher.py` | Typed lazy boundary for the two native state-file lock APIs |
+| `tests/test_mqtt_publisher.py` | Cross-platform adapter regression independent of the test host |
+| `README.md` | Native Linux prerequisite, portability gate, and immutable-checkout commands |
+
+### Why
+
+- Allow strict mypy validation of one source tree on Windows, macOS, and Linux
+- Keep the runtime lock native to each operating system without importing an unavailable module
+- Preserve single-process checkpoint ownership before starting the server warm-up
+- Avoid weakening `/opt` permissions or running validation tools as `root` only to create caches
+
+### Technical boundary
+
+The publisher still holds one advisory lock for the full lifetime of a process,
+so two processes cannot advance the same state file concurrently. Version 1.1.7
+places the two native implementations behind one typed lazy-loading boundary:
+
+| Platform | Native API | Preserved behavior |
+|----------|------------|--------------------|
+| Windows | `msvcrt.locking` | Non-blocking one-byte lock with an initialized marker byte |
+| macOS | `fcntl.flock` | Non-blocking exclusive advisory lock |
+| Linux | `fcntl.flock` | Non-blocking exclusive advisory lock |
+
+Only the module for the running platform is imported. This keeps runtime behavior
+native while preventing POSIX mypy runs from checking unavailable Windows-only
+members. The focused regression test drives both adapters with controlled native
+API substitutes, independent of the host used to run pytest.
+
+The release portability gate checks the production source explicitly for all
+three targets:
+
+```bash
+python -m mypy --platform win32 --cache-dir .mypy_cache/win32 src
+python -m mypy --platform darwin --cache-dir .mypy_cache/darwin src
+python -m mypy --platform linux --cache-dir .mypy_cache/linux src
+```
+
+These checks supplement, rather than replace, the full pytest, Ruff, format, and
+native-host mypy runs. MQTT payloads, settings, state schema, checkpoint ordering,
+failure replay, and ground-truth boundaries are unchanged from v1.1.6.
+
 ## Prospective MQTT Publisher v1.1.6
 
 Implementation E turns the existing causal generator into a wall-clock publisher
@@ -828,6 +883,18 @@ py -3.12 -m venv .venv
 
 ### macOS or Linux
 
+On Ubuntu or Debian, install the native OpenMP runtime required by LightGBM
+before running the environment smoke test:
+
+```bash
+sudo apt update
+sudo apt install -y libgomp1
+```
+
+This operating-system library is intentionally outside `requirements.lock`; the
+training Dockerfile installs the same package in its Linux image. It is not an
+extra installation step on Windows or macOS.
+
 ```bash
 python3.12 -m venv .venv
 ./.venv/bin/python -m pip install --require-hashes -r requirements.lock
@@ -919,6 +986,19 @@ python -m ruff format --check .
 python -m mypy
 ```
 
+For an immutable server checkout owned by `root`, run the verification tools as
+the normal deployment user while redirecting or disabling their caches:
+
+```bash
+python -m pytest -q -p no:cacheprovider
+python -m ruff check --no-cache .
+python -m ruff format --check --no-cache .
+python -m mypy --cache-dir /tmp/mtex-pdm-mypy-cache
+```
+
+Do not use `sudo` for these checks and do not make the application tree writable
+just to store disposable tool caches.
+
 `--config-dir PATH` may be passed to configuration, component, or environment
 checks. The alternative
 `MTEX_PDM_CONFIG_DIR` environment variable is useful inside containers. No
@@ -932,9 +1012,9 @@ second dependency graph, validates the frozen configuration, and runs the test
 suite. The final process uses a non-root user.
 
 ```bash
-docker build --file Dockerfile.training --tag mtex-pdm-training:1.1.6 .
-docker run --rm --cpus 2 --memory 4g mtex-pdm-training:1.1.6
-docker run --rm mtex-pdm-training:1.1.6 components-check --json
+docker build --file Dockerfile.training --tag mtex-pdm-training:1.1.7 .
+docker run --rm --cpus 2 --memory 4g mtex-pdm-training:1.1.7
+docker run --rm mtex-pdm-training:1.1.7 components-check --json
 ```
 
 The image defaults to the full `environment-check`. Its entry point is
@@ -942,7 +1022,7 @@ The image defaults to the full `environment-check`. Its entry point is
 tools:
 
 ```bash
-docker run --rm --entrypoint python mtex-pdm-training:1.1.6 -m pytest
+docker run --rm --entrypoint python mtex-pdm-training:1.1.7 -m pytest
 ```
 
 ### Device-specific builds
@@ -954,7 +1034,7 @@ docker buildx build \
   --platform linux/arm64 \
   --load \
   --file Dockerfile.training \
-  --tag mtex-pdm-training:1.1.6-arm64 \
+  --tag mtex-pdm-training:1.1.7-arm64 \
   .
 ```
 
@@ -965,7 +1045,7 @@ docker buildx build \
   --platform linux/amd64 \
   --load \
   --file Dockerfile.training \
-  --tag mtex-pdm-training:1.1.6-amd64 \
+  --tag mtex-pdm-training:1.1.7-amd64 \
   .
 ```
 

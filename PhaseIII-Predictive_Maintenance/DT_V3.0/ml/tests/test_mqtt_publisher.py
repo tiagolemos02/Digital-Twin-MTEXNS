@@ -12,6 +12,7 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
+import mtex_pdm.mqtt_publisher as mqtt_publisher
 from mtex_pdm.contracts import DatasetSplit, DataSource
 from mtex_pdm.generator import NumericSignal, ObservableMachineState, TelemetrySnapshot
 from mtex_pdm.mqtt_publisher import (
@@ -123,6 +124,49 @@ def _monotonic_counter() -> Callable[[], float]:
 def _payload_for(messages: list[MqttMessage], suffix: str) -> object:
     message = next(item for item in messages if item.topic.endswith(f"/state/{suffix}"))
     return json.loads(message.payload)
+
+
+def test_platform_file_lock_adapter_routes_windows_and_posix_calls(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, int, int]] = []
+
+    class _WindowsLock:
+        LK_NBLCK = 1
+        LK_UNLCK = 2
+
+        def locking(self, fd: int, mode: int, nbytes: int) -> None:
+            calls.append(("windows", mode, nbytes))
+
+    class _PosixLock:
+        LOCK_EX = 4
+        LOCK_NB = 8
+        LOCK_UN = 16
+
+        def flock(self, fd: int, operation: int) -> None:
+            calls.append(("posix", operation, fd))
+
+    modules = {"msvcrt": _WindowsLock(), "fcntl": _PosixLock()}
+    monkeypatch.setattr(mqtt_publisher, "import_module", modules.__getitem__)
+
+    with (tmp_path / "windows.lock").open("a+b") as handle:
+        mqtt_publisher._acquire_platform_file_lock(handle, "nt")
+        mqtt_publisher._release_platform_file_lock(handle, "nt")
+        handle.seek(0)
+        assert handle.read() == b"0"
+
+    with (tmp_path / "posix.lock").open("a+b") as handle:
+        posix_fd = handle.fileno()
+        mqtt_publisher._acquire_platform_file_lock(handle, "posix")
+        mqtt_publisher._release_platform_file_lock(handle, "posix")
+
+    assert calls == [
+        ("windows", 1, 1),
+        ("windows", 2, 1),
+        ("posix", 12, posix_fd),
+        ("posix", 16, posix_fd),
+    ]
 
 
 def test_payload_renderer_emits_exact_authorized_catalog_without_ground_truth() -> None:

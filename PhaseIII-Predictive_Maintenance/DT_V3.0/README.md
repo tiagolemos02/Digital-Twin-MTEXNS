@@ -1,15 +1,14 @@
-# Phase III - Predictive Maintenance v1.1.6
+# Phase III - Predictive Maintenance v1.1.7
 
-**Version 1.1.6 implements the prospective MQTT publisher for persistent TPPPS4 synthetic machines.**
+**Version 1.1.7 hardens the prospective MQTT publisher for Windows, macOS, and Linux deployments.**
 
-Version `1.1.6` reuses the causal v1.1.5 state engine to publish 4–6 prospective machines through the existing per-attribute MQTT contract.
-Every emitted machine snapshot contains exactly 105 TPPPS4 topics with QoS 0 and retention disabled. Continuous mode uses 60-second batches; the bounded
-demonstration profile uses 8-second batches. Atomic local checkpoints preserve synthetic machine/RNG state without publishing hidden
-degradation, scenarios, seeds, ground-truth events, or future maintenance dates.
+Version `1.1.7` keeps the complete v1.1.6 MQTT behavior and replaces direct platform imports in the state-file lock with a small typed native adapter.
+Windows continues to use `msvcrt`; macOS and Linux continue to use POSIX `fcntl`. The adapter is loaded lazily so mypy can verify the same source for
+`win32`, `darwin`, and `linux` without treating the unavailable operating-system module as part of the active platform.
 
 Configuration and persisted contracts remain `1.1.0`, and the authorised source catalogue remains `1.0.0`. No broker, IoT Agent, Orion,
-QuantumLeap, CrateDB, portal machine, or company server was contacted during this implementation. Deployment and warm-up are separate,
-explicitly controlled steps.
+QuantumLeap, CrateDB, portal machine, or company endpoint was contacted by this hotfix. Publisher configuration, checkpoints, seeds, MQTT topics,
+payloads, QoS, cadence, and prospective scenarios are unchanged.
 
 The existing Phase II security model remains the baseline: browser traffic goes through the portal, PEP Proxy, API Gateway, Keyrock, and AuthzForce policies. CrateDB and QuantumLeap are intentionally kept internal-only.
 
@@ -19,11 +18,50 @@ The existing Phase II security model remains the baseline: browser traffic goes 
 
 **Phase**: `Phase III - Predictive Maintenance`
 
-**Version**: `1.1.6`
+**Version**: `1.1.7`
 
 **Author**: Tiago Lemos
 
 **Licence**: MIT
+
+---
+
+## Scope of v1.1.7
+
+### Implemented
+
+- Typed platform-lock adapter that resolves native modules only when the matching operating-system branch executes
+- Unchanged Windows byte-range locking through `msvcrt.locking`, including the one-byte lock-file marker required by that API
+- Unchanged advisory locking through `fcntl.flock` on both macOS and Linux
+- One platform-independent regression test that exercises Windows acquire/release and POSIX acquire/release paths on every test host
+- Explicit static-type verification of the production source for `win32`, `darwin`, and `linux`
+- Read-only server validation guidance that avoids pytest, Ruff, and mypy cache writes inside `/opt`
+- Ubuntu/Debian `libgomp1` prerequisite documentation for the LightGBM environment smoke test
+
+### New
+
+| File | Purpose |
+|------|---------|
+| `ml/src/mtex_pdm/mqtt_publisher.py` | Adds the lazy, protocol-typed Windows/POSIX lock boundary without changing checkpoint semantics |
+| `ml/tests/test_mqtt_publisher.py` | Exercises both native lock adapters independently of the host operating system |
+| `ml/README.md` | Documents v1.1.7 portability checks, native Linux prerequisite, and read-only deployment validation |
+
+### Why
+
+- Make the same committed source pass strict mypy validation on the x86-64 Ubuntu publisher VM, the ARM64 MacBook, and Windows
+- Prevent platform-specific type stubs from reporting unavailable `msvcrt` members while analysing a POSIX host
+- Preserve the process-lock guarantee that stops two publishers from advancing the same checkpoint
+- Keep deployment code immutable under `/opt` without requiring tests or linters to run as `root`
+- Record the native OpenMP dependency that LightGBM requires outside Python's hash-locked package set
+
+### Not Changed
+
+- MQTT topic and payload contracts, 105 attributes, QoS 0, `retain=false`, broker settings, TLS behavior, credentials, and cadence are unchanged
+- State schema, state fingerprint, atomic checkpoint order, replay boundary, hidden ground truth, seeds, scenarios, and machine histories are unchanged
+- Frozen configuration/contract `1.1.0`, catalogue `1.0.0`, dataset generation, pilot analysis, and historical artifacts are unchanged
+- No machine registration, broker publication, warm-up, dataset freeze, model training, inference, FIWARE prediction entity, BFF, or portal feature was added
+
+Full portability checks and deployment-safe commands are documented in [`ml/README.md`](ml/README.md).
 
 ---
 
